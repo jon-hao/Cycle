@@ -1,8 +1,5 @@
 import { Platform } from "../constants/serviceEnum";
 import { TConfigDomain } from "../types/configType";
-// import dotenv from "dotenv";
-
-// dotenv.config();
 
 const config: TConfigDomain = {
   [Platform.CNN]: {

@@ -1,9 +1,5 @@
 const Home = () => {
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      test
-    </div>
-  );
+  return <div>每天前进一小步</div>;
 }
 
 export default Home

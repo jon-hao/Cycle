@@ -1,5 +1,5 @@
 import { HttpStatusCode, HttpStatusText } from "../constants/httpEnum";
-import { TBody } from "./httpType";
+import { TBody } from "./requestType";
 
 export type TSuccessResponse = {
   status: HttpStatusCode.Success;

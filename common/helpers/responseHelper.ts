@@ -1,5 +1,5 @@
 import { HttpStatusCode, HttpStatusText } from "../constants/httpEnum";
-import { TBody } from "../types/httpType";
+import { TBody } from "../types/requestType";
 import { TErrorResponse, TSuccessResponse } from "../types/responseType";
 
 export const processSuccessResponse = (body: TBody): TSuccessResponse => {
