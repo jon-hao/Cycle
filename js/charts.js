@@ -232,12 +232,12 @@ window.CycleCharts = (function () {
   function kondratievQuadrant(svg, model) {
     const ns = "http://www.w3.org/2000/svg";
     while (svg.firstChild) svg.removeChild(svg.firstChild);
-    const w = 360;
-    const h = 360;
+    const w = 380;
+    const h = 380;
     svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
     const cx = w / 2;
     const cy = h / 2;
-    const r = 128;
+    const r = 124;
 
     function el(name, attrs, text) {
       const n = document.createElementNS(ns, name);
@@ -277,8 +277,38 @@ window.CycleCharts = (function () {
     el("line", { x1: cx - r, y1: cy, x2: cx + r, y2: cy, stroke: "var(--line)" });
     el("line", { x1: cx, y1: cy - r, x2: cx, y2: cy + r, stroke: "var(--line)" });
 
+    // 坐标轴四向：右扩张 / 左收缩 / 上升温 / 下降温（示意，非独立计量轴）
+    const axisPad = 18;
+    const axisStyle = {
+      "font-size": "11",
+      "font-weight": "600",
+      fill: "var(--muted)",
+      "font-family": "Microsoft YaHei, sans-serif",
+      "dominant-baseline": "middle",
+    };
+    el("text", Object.assign({}, axisStyle, {
+      x: cx + r + axisPad,
+      y: cy,
+      "text-anchor": "start",
+    }), window.t("axisExpand"));
+    el("text", Object.assign({}, axisStyle, {
+      x: cx - r - axisPad,
+      y: cy,
+      "text-anchor": "end",
+    }), window.t("axisContract"));
+    el("text", Object.assign({}, axisStyle, {
+      x: cx,
+      y: cy - r - axisPad,
+      "text-anchor": "middle",
+    }), window.t("axisWarm"));
+    el("text", Object.assign({}, axisStyle, {
+      x: cx,
+      y: cy + r + axisPad,
+      "text-anchor": "middle",
+    }), window.t("axisCool"));
+
     // 象限文案贴边，避免与落点重叠：右上复苏 → 左上繁荣 → 左下滞胀 → 右下萧条
-    const labelR = r * 0.78;
+    const labelR = r * 0.72;
     const phaseLabels = [
       { key: "spring", x: cx + labelR * 0.72, y: cy - labelR * 0.72, color: "#1f8a5b" },
       { key: "summer", x: cx - labelR * 0.72, y: cy - labelR * 0.72, color: "#1a5fbf" },
