@@ -116,13 +116,15 @@ window.CyclePages.data = (function () {
   }
 
   function openWaveModal(k, aiPayload) {
-    const series = window.CycleKondratiev.longWaveSeries(new Date().getFullYear());
+    const country = k.country || window.CycleState.country;
+    const calYear = Math.round(k.year);
+    const series = window.CycleKondratiev.longWaveSeries(calYear, country);
     const pill = window.CycleKondratiev.pillText(k);
     const theme =
       k.theme ||
       window.CycleKondratiev.themeText(
         k.wave,
-        k.country || window.CycleState.country,
+        country,
         window.CycleState.lang
       );
     window.CycleUI.openModal(`
@@ -135,7 +137,7 @@ window.CyclePages.data = (function () {
     requestAnimationFrame(() => {
       window.CycleCharts.lineChart(document.getElementById("waveChart"), series, {
         color: (window.CyclePhaseColor && window.CyclePhaseColor[k.phaseKey]) || "#0f6e56",
-        blinkAt: String(Math.round(k.year)),
+        blinkAt: String(calYear),
         xUnit: window.CycleState.lang === "en" ? "Year" : "年",
         yUnit: "",
         xTicks: 6,

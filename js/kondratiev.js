@@ -72,6 +72,7 @@ window.CycleKondratiev = (function () {
     },
   ];
 
+  /** 进度 0–1：复苏→繁荣→滞胀→萧条 */
   const PHASES = [
     { key: "spring", start: 0, end: 0.25 },
     { key: "summer", start: 0.25, end: 0.5 },
@@ -79,7 +80,19 @@ window.CycleKondratiev = (function () {
     { key: "winter", start: 0.75, end: 1 },
   ];
 
-  /** 相对美国的年份偏移：中国工业化/长波切入更晚 */
+  /**
+   * 数学坐标（+y 向上），与卡片标签一致：
+   * 右上复苏 / 左上繁荣 / 左下滞胀 / 右下萧条；顺时针演进。
+   */
+  const QUAD = {
+    spring: { x: 0.7, y: 0.7 },
+    summer: { x: -0.7, y: 0.7 },
+    autumn: { x: -0.7, y: -0.7 },
+    winter: { x: 0.7, y: -0.7 },
+  };
+  const PHASE_ORDER = ["spring", "summer", "autumn", "winter"];
+
+  /** 相对美国的示意偏移：中国长波切入更晚 → 仍偏 K5 尾声 */
   function countryYearOffset(country) {
     if (country === "CN") return -7.5;
     if (country === "GLOBAL") return -2;
@@ -90,19 +103,20 @@ window.CycleKondratiev = (function () {
     return Math.max(0, Math.min(1, v));
   }
 
+  function toYear(date) {
+    if (date instanceof Date) {
+      return date.getFullYear() + (date.getMonth() + date.getDate() / 30) / 12;
+    }
+    return Number(date);
+  }
+
   function themeText(wave, country, lang) {
     const pack =
       country === "CN" && wave.themeCN ? wave.themeCN : wave.theme;
     return pack[lang] || pack.zh || pack.en;
   }
 
-  function waveAt(date, country) {
-    const code = country || (window.CycleState && window.CycleState.country) || "US";
-    const y0 =
-      date instanceof Date
-        ? date.getFullYear() + (date.getMonth() + date.getDate() / 30) / 12
-        : Number(date);
-    const y = y0 + countryYearOffset(code);
+  function findWave(y) {
     let wave = WAVES[WAVES.length - 1];
     for (let i = 0; i < WAVES.length; i++) {
       if (y >= WAVES[i].start && y < WAVES[i].end) {
@@ -110,62 +124,95 @@ window.CycleKondratiev = (function () {
         break;
       }
     }
-    const progress = clamp01((y - wave.start) / Math.max(1, wave.end - wave.start));
-    const phase =
+    return wave;
+  }
+
+  function phaseOf(progress) {
+    return (
       PHASES.find((p) => progress >= p.start && progress < p.end) ||
-      PHASES[PHASES.length - 1];
+      PHASES[PHASES.length - 1]
+    );
+  }
+
+  /** 长波示意高度：谷底起步上升（复苏）→ 峰（繁荣末）→ 下行（滞胀/萧条） */
+  function levelFromProgress(progress) {
+    return -Math.cos(clamp01(progress) * Math.PI * 2);
+  }
+
+  function slopeFromProgress(progress) {
+    return Math.sin(clamp01(progress) * Math.PI * 2);
+  }
+
+  function lerp(a, b, t) {
+    return a + (b - a) * t;
+  }
+
+  function posOnDial(phaseKey, local) {
+    const i = PHASE_ORDER.indexOf(phaseKey);
+    const cur = QUAD[phaseKey];
+    const next = QUAD[PHASE_ORDER[(i + 1) % 4]];
+    // 在本象限内略向下一象限挪动，表示顺时针前进
+    const t = 0.18 + clamp01(local) * 0.55;
+    const x = lerp(cur.x, next.x, t * 0.35);
+    const y = lerp(cur.y, next.y, t * 0.35);
+    const radius = 0.55 + clamp01(local) * 0.22;
+    const len = Math.hypot(x, y) || 1;
+    return { x: (x / len) * radius, y: (y / len) * radius };
+  }
+
+  function waveAt(date, country) {
+    const code =
+      country || (window.CycleState && window.CycleState.country) || "US";
+    const calendarYear = toYear(date);
+    const modelYear = calendarYear + countryYearOffset(code);
+    const wave = findWave(modelYear);
+    const progress = clamp01(
+      (modelYear - wave.start) / Math.max(1, wave.end - wave.start)
+    );
+    const phase = phaseOf(progress);
     const local =
       (progress - phase.start) / Math.max(0.0001, phase.end - phase.start);
 
-    const base = {
-      spring: -Math.PI / 4,
-      summer: (-3 * Math.PI) / 4,
-      autumn: (3 * Math.PI) / 4,
-      winter: Math.PI / 4,
-    }[phase.key];
-    const angle = base + (local - 0.5) * (Math.PI / 6);
-    const radius = 0.58 + local * 0.22;
-
-    const nextProgress = clamp01(progress + 0.02);
-    const nextPhase =
-      PHASES.find((p) => nextProgress >= p.start && nextProgress < p.end) ||
-      phase;
+    const pos = posOnDial(phase.key, local);
+    const nextProgress = clamp01(progress + 0.03);
+    const nextPhase = phaseOf(nextProgress);
     const nextLocal =
       (nextProgress - nextPhase.start) /
       Math.max(0.0001, nextPhase.end - nextPhase.start);
-    const nextBase = {
-      spring: -Math.PI / 4,
-      summer: (-3 * Math.PI) / 4,
-      autumn: (3 * Math.PI) / 4,
-      winter: Math.PI / 4,
-    }[nextPhase.key];
-    const nextAngle = nextBase + (nextLocal - 0.5) * (Math.PI / 6);
-    const nextRadius = 0.58 + nextLocal * 0.22;
+    const nextPos = posOnDial(nextPhase.key, nextLocal);
 
     return {
       wave,
       progress,
       phaseKey: phase.key,
       local,
-      x: Math.cos(angle) * radius,
-      y: Math.sin(angle) * radius,
-      dx: Math.cos(nextAngle) * nextRadius - Math.cos(angle) * radius,
-      dy: Math.sin(nextAngle) * nextRadius - Math.sin(angle) * radius,
-      year: y,
+      x: pos.x,
+      y: pos.y,
+      dx: nextPos.x - pos.x,
+      dy: nextPos.y - pos.y,
+      year: calendarYear,
+      modelYear,
+      level: levelFromProgress(progress),
+      slope: slopeFromProgress(progress),
       country: code,
-      theme: themeText(wave, code, (window.CycleState && window.CycleState.lang) || "zh"),
+      theme: themeText(
+        wave,
+        code,
+        (window.CycleState && window.CycleState.lang) || "zh"
+      ),
     };
   }
 
-  function longWaveSeries(centerYear) {
-    const start = centerYear - 250;
-    const end = centerYear + 250;
+  /** 与阶段模型一致的长波示意序列（按日历年打点，阶段含国家偏移） */
+  function longWaveSeries(centerYear, country) {
+    const code =
+      country || (window.CycleState && window.CycleState.country) || "US";
+    const start = Math.floor(centerYear) - 250;
+    const end = Math.floor(centerYear) + 250;
     const pts = [];
     for (let y = start; y <= end; y += 1) {
-      const v =
-        Math.sin(((y - 1780) / 54) * Math.PI * 2) * 0.85 +
-        Math.sin(((y - 1780) / 110) * Math.PI * 2) * 0.25;
-      pts.push({ d: String(y), v });
+      const m = waveAt(y + 0.5, code);
+      pts.push({ d: String(y), v: m.level });
     }
     return pts;
   }
@@ -197,5 +244,6 @@ window.CycleKondratiev = (function () {
     themeText,
     phaseLabel,
     pillText,
+    levelFromProgress,
   };
 })();

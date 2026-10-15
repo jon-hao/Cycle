@@ -277,9 +277,8 @@ window.CycleCharts = (function () {
     el("line", { x1: cx - r, y1: cy, x2: cx + r, y2: cy, stroke: "var(--line)" });
     el("line", { x1: cx, y1: cy - r, x2: cx, y2: cy + r, stroke: "var(--line)" });
 
-    // 象限文案：仅阶段名（复苏/繁荣/滞胀/萧条），不含春夏秋冬
-    // 顺时针：春右上 → 夏左上 → 秋左下 → 冬右下
-    const labelR = r * 0.55;
+    // 象限文案贴边，避免与落点重叠：右上复苏 → 左上繁荣 → 左下滞胀 → 右下萧条
+    const labelR = r * 0.78;
     const phaseLabels = [
       { key: "spring", x: cx + labelR * 0.72, y: cy - labelR * 0.72, color: "#1f8a5b" },
       { key: "summer", x: cx - labelR * 0.72, y: cy - labelR * 0.72, color: "#1a5fbf" },
@@ -298,7 +297,7 @@ window.CycleCharts = (function () {
           y: L.y,
           "text-anchor": "middle",
           "dominant-baseline": "middle",
-          "font-size": "15",
+          "font-size": "14",
           "font-weight": "700",
           fill: L.color,
           "font-family": "Microsoft YaHei, sans-serif",
@@ -307,6 +306,7 @@ window.CycleCharts = (function () {
       );
     });
 
+    // model.x/y：+x 右、+y 上（与标签一致）
     const px = cx + model.x * r * 0.88;
     const py = cy - model.y * r * 0.88;
     el("circle", { cx: px, cy: py, r: 16, class: "pulse-ring", fill: "var(--accent)", opacity: "0.35" });
