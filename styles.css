@@ -489,6 +489,13 @@ button,
   color: var(--muted);
 }
 
+.section-label {
+  margin: 4px 2px 8px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
 .k-panel .panel-head {
   flex-wrap: nowrap;
 }

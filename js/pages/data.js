@@ -366,7 +366,100 @@ window.CyclePages.data = (function () {
           macro && macro.ppiYoY != null ? fmt(macro.ppiYoY, 1) + "%" : window.t("missing"),
           deltaHtml(ppiD)
         )}
+        ${
+          code === "US"
+            ? metricCard(
+                "coreCpi",
+                window.t("coreCpi"),
+                macro && macro.coreCpiYoY != null
+                  ? fmt(macro.coreCpiYoY, 1) + "%"
+                  : window.t("missing"),
+                deltaHtml(seriesDeltas(macro && macro.coreCpiHistory))
+              )
+            : ""
+        }
       </section>
+      ${
+        code === "US"
+          ? `<h3 class="section-label card-label">${window.t("usExtras")}</h3>
+      <section class="metrics metrics-grid">
+        ${metricCard(
+          "unrate",
+          window.t("unrate"),
+          macro && macro.unrate != null ? fmt(macro.unrate, 1) + "%" : window.t("missing"),
+          deltaHtml(seriesDeltas(macro && macro.unrateHistory))
+        )}
+        ${metricCard(
+          "payrolls",
+          window.t("payrolls"),
+          macro && macro.payrollsYoY != null
+            ? fmt(macro.payrollsYoY, 1) + "%"
+            : window.t("missing"),
+          deltaHtml(seriesDeltas(macro && macro.payrollsYoYHistory))
+        )}
+        ${metricCard(
+          "indpro",
+          window.t("indpro"),
+          macro && macro.indproYoY != null
+            ? fmt(macro.indproYoY, 1) + "%"
+            : window.t("missing"),
+          deltaHtml(seriesDeltas(macro && macro.indproYoYHistory))
+        )}
+        ${metricCard(
+          "retail",
+          window.t("retail"),
+          macro && macro.retailYoY != null
+            ? fmt(macro.retailYoY, 1) + "%"
+            : window.t("missing"),
+          deltaHtml(seriesDeltas(macro && macro.retailYoYHistory))
+        )}
+        ${metricCard(
+          "gdp",
+          window.t("gdp"),
+          macro && macro.gdpYoY != null ? fmt(macro.gdpYoY, 1) + "%" : window.t("missing"),
+          deltaHtml(seriesDeltas(macro && macro.gdpYoYHistory))
+        )}
+        ${metricCard(
+          "yieldCurve",
+          window.t("yieldCurve"),
+          macro && macro.yieldCurve != null
+            ? fmt(macro.yieldCurve, 2) + "%"
+            : window.t("missing"),
+          deltaHtml(seriesDeltas(macro && macro.yieldCurveHistory))
+        )}
+        ${metricCard(
+          "m2",
+          window.t("m2"),
+          macro && macro.m2YoY != null ? fmt(macro.m2YoY, 1) + "%" : window.t("missing"),
+          deltaHtml(seriesDeltas(macro && macro.m2YoYHistory))
+        )}
+        ${metricCard(
+          "credit",
+          window.t("credit"),
+          macro && macro.creditYoY != null
+            ? fmt(macro.creditYoY, 1) + "%"
+            : window.t("missing"),
+          deltaHtml(seriesDeltas(macro && macro.creditYoYHistory))
+        )}
+        ${metricCard(
+          "housing",
+          window.t("housing"),
+          macro && macro.housingYoY != null
+            ? fmt(macro.housingYoY, 1) + "%"
+            : window.t("missing"),
+          deltaHtml(seriesDeltas(macro && macro.housingYoYHistory))
+        )}
+        ${metricCard(
+          "claims",
+          window.t("claims"),
+          macro && macro.claims != null
+            ? Math.round(macro.claims).toLocaleString()
+            : window.t("missing"),
+          deltaHtml(seriesDeltas(macro && macro.claimsHistory))
+        )}
+      </section>`
+          : ""
+      }
     `;
 
     window.CycleSelect.mount(
@@ -392,9 +485,19 @@ window.CyclePages.data = (function () {
       rate: macro && macro.policyRate,
       inflation: macro && macro.inflation,
       cpi: macro && macro.cpiYoY,
+      coreCpi: macro && macro.coreCpiYoY,
       ppi: macro && macro.ppiYoY,
+      unrate: macro && macro.unrate,
+      payrolls: macro && macro.payrollsYoY,
+      indpro: macro && macro.indproYoY,
+      retail: macro && macro.retailYoY,
+      gdp: macro && macro.gdpYoY,
+      yieldCurve: macro && macro.yieldCurve,
+      m2: macro && macro.m2YoY,
       fearGreed: fg && fg.value,
       kMode: mode,
+      growthScore: k.scores && k.scores.growthScore,
+      inflationScore: k.scores && k.scores.inflationScore,
       _next: next,
     };
 
@@ -403,38 +506,103 @@ window.CyclePages.data = (function () {
       openWaveModal(k, aiPayload, macro, fg);
     });
 
+    const seriesMap = {
+      rate: {
+        title: `${bankLabel(code)} · ${rateLabel(code)}`,
+        series: macro && macro.rateHistory,
+        extra: nextMeetHtml(next),
+      },
+      inflation: {
+        title: window.t("inflation"),
+        series: macro && macro.inflationHistory,
+        extra: `<p class="term-note card-content">${window.t("inflationHint")}</p>`,
+      },
+      cpi: {
+        title: window.t("cpi"),
+        series: macro && macro.cpiHistory,
+        extra: `<p class="term-note card-content">${window.t("cpiHint")}</p>`,
+      },
+      ppi: {
+        title: window.t("ppi"),
+        series: macro && macro.ppiHistory,
+        extra: `<p class="term-note card-content">${window.t("ppiHint")}</p>`,
+      },
+      coreCpi: {
+        title: window.t("coreCpi"),
+        series: macro && macro.coreCpiHistory,
+        extra: "",
+        opts: { yUnit: "%" },
+      },
+      unrate: {
+        title: window.t("unrate"),
+        series: macro && macro.unrateHistory,
+        extra: "",
+        opts: { yUnit: "%" },
+      },
+      payrolls: {
+        title: window.t("payrolls"),
+        series: macro && macro.payrollsYoYHistory,
+        extra: "",
+        opts: { yUnit: "%" },
+      },
+      indpro: {
+        title: window.t("indpro"),
+        series: macro && macro.indproYoYHistory,
+        extra: "",
+        opts: { yUnit: "%" },
+      },
+      retail: {
+        title: window.t("retail"),
+        series: macro && macro.retailYoYHistory,
+        extra: "",
+        opts: { yUnit: "%" },
+      },
+      gdp: {
+        title: window.t("gdp"),
+        series: macro && macro.gdpYoYHistory,
+        extra: "",
+        opts: { yUnit: "%" },
+      },
+      yieldCurve: {
+        title: window.t("yieldCurve"),
+        series: macro && macro.yieldCurveHistory,
+        extra: "",
+        opts: { yUnit: "%" },
+      },
+      m2: {
+        title: window.t("m2"),
+        series: macro && macro.m2YoYHistory,
+        extra: "",
+        opts: { yUnit: "%" },
+      },
+      credit: {
+        title: window.t("credit"),
+        series: macro && macro.creditYoYHistory,
+        extra: "",
+        opts: { yUnit: "%" },
+      },
+      housing: {
+        title: window.t("housing"),
+        series: macro && macro.housingYoYHistory,
+        extra: "",
+        opts: { yUnit: "%" },
+      },
+      claims: {
+        title: window.t("claims"),
+        series: macro && macro.claimsHistory,
+        extra: "",
+        opts: { yUnit: "" },
+      },
+    };
+
     function openMetric(id) {
       if (id === "fear") {
         openFearModal(fg, fgVal, trend, aiPayload);
-      } else if (id === "rate") {
-        openSeriesModal(
-          `${bankLabel(code)} · ${rateLabel(code)}`,
-          macro && macro.rateHistory,
-          nextMeetHtml(next),
-          aiPayload
-        );
-      } else if (id === "inflation") {
-        openSeriesModal(
-          window.t("inflation"),
-          macro && macro.inflationHistory,
-          `<p class="term-note card-content">${window.t("inflationHint")}</p>`,
-          aiPayload
-        );
-      } else if (id === "cpi") {
-        openSeriesModal(
-          window.t("cpi"),
-          macro && macro.cpiHistory,
-          `<p class="term-note card-content">${window.t("cpiHint")}</p>`,
-          aiPayload
-        );
-      } else if (id === "ppi") {
-        openSeriesModal(
-          window.t("ppi"),
-          macro && macro.ppiHistory,
-          `<p class="term-note card-content">${window.t("ppiHint")}</p>`,
-          aiPayload
-        );
+        return;
       }
+      const conf = seriesMap[id];
+      if (!conf) return;
+      openSeriesModal(conf.title, conf.series, conf.extra, aiPayload, conf.opts);
     }
 
     root.querySelectorAll(".metric-card:not(.is-missing)").forEach((card) => {

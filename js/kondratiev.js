@@ -252,25 +252,42 @@ window.CycleKondratiev = (function () {
    * growth↑ + inflation↓ → 复苏；双升 → 繁荣；growth↓ inflation↑ → 滞胀；双降 → 萧条
    */
   function macroScores(macro, fg) {
-    const cpi = macro && macro.cpiYoY != null ? Number(macro.cpiYoY) : null;
-    const infl =
-      macro && macro.inflation != null ? Number(macro.inflation) : cpi;
-    const ppi = macro && macro.ppiYoY != null ? Number(macro.ppiYoY) : null;
-    const rate =
-      macro && macro.policyRate != null ? Number(macro.policyRate) : null;
+    const m = macro || {};
+    const cpi = m.cpiYoY != null ? Number(m.cpiYoY) : null;
+    const infl = m.inflation != null ? Number(m.inflation) : cpi;
+    const core = m.coreCpiYoY != null ? Number(m.coreCpiYoY) : null;
+    const ppi = m.ppiYoY != null ? Number(m.ppiYoY) : null;
+    const rate = m.policyRate != null ? Number(m.policyRate) : null;
     const fgVal = fg && fg.value != null ? Number(fg.value) : null;
+    const unrate = m.unrate != null ? Number(m.unrate) : null;
+    const payrolls = m.payrollsYoY != null ? Number(m.payrollsYoY) : null;
+    const indpro = m.indproYoY != null ? Number(m.indproYoY) : null;
+    const retail = m.retailYoY != null ? Number(m.retailYoY) : null;
+    const curve = m.yieldCurve != null ? Number(m.yieldCurve) : null;
+    const m2 = m.m2YoY != null ? Number(m.m2YoY) : null;
+    const gdp = m.gdpYoY != null ? Number(m.gdpYoY) : null;
+    const housing = m.housingYoY != null ? Number(m.housingYoY) : null;
+    const credit = m.creditYoY != null ? Number(m.creditYoY) : null;
+    const claims = m.claims != null ? Number(m.claims) : null;
 
-    const cpiMom = seriesDelta(macro && macro.cpiHistory, 1);
-    const cpiYoyDelta = seriesDelta(macro && macro.cpiHistory, 12);
-    const rateMom = seriesDelta(macro && macro.rateHistory, 1);
-    const rateYoyDelta = seriesDelta(macro && macro.rateHistory, 12);
-    const ppiMom = seriesDelta(macro && macro.ppiHistory, 1);
+    const cpiMom = seriesDelta(m.cpiHistory, 1);
+    const cpiYoyDelta = seriesDelta(m.cpiHistory, 12);
+    const rateMom = seriesDelta(m.rateHistory, 1);
+    const rateYoyDelta = seriesDelta(m.rateHistory, 12);
+    const ppiMom = seriesDelta(m.ppiHistory, 1);
+    const unrateMom = seriesDelta(m.unrateHistory, 1);
+    const claimsMom = seriesDelta(m.claimsHistory, 4); // 约四周
+    const curveMom = seriesDelta(m.yieldCurveHistory, 20);
 
-    // 通胀：相对 2% 目标 + 变化方向
+    // —— 通胀压力 ——
     let inflationScore = 0;
     let inflN = 0;
     if (infl != null && !Number.isNaN(infl)) {
       inflationScore += clamp((infl - 2) / 3, -1, 1);
+      inflN += 1;
+    }
+    if (core != null && !Number.isNaN(core)) {
+      inflationScore += clamp((core - 2) / 2.5, -1, 1);
       inflN += 1;
     }
     if (cpiMom != null) {
@@ -279,11 +296,11 @@ window.CycleKondratiev = (function () {
     }
     if (cpiYoyDelta != null) {
       inflationScore += clamp(cpiYoyDelta / 1.2, -1, 1);
-      inflN += 1;
+      inflN += 0.8;
     }
     if (ppi != null && infl != null) {
-      inflationScore += clamp((ppi - infl) / 3, -1, 1) * 0.5;
-      inflN += 0.5;
+      inflationScore += clamp((ppi - infl) / 3, -1, 1) * 0.6;
+      inflN += 0.6;
     }
     if (ppiMom != null) {
       inflationScore += clamp(ppiMom / 0.5, -1, 1) * 0.5;
@@ -291,27 +308,79 @@ window.CycleKondratiev = (function () {
     }
     inflationScore = inflN ? clamp(inflationScore / inflN, -1, 1) : 0;
 
-    // 增长/风险偏好：恐贪、降息、实际利率放松
+    // —— 增长 / 信用脉冲 ——
     let growthScore = 0;
     let gN = 0;
-    if (fgVal != null && !Number.isNaN(fgVal)) {
-      growthScore += clamp((fgVal - 50) / 35, -1, 1);
+    if (gdp != null && !Number.isNaN(gdp)) {
+      growthScore += clamp((gdp - 1.5) / 2.5, -1, 1);
+      gN += 1.4;
+    }
+    if (indpro != null && !Number.isNaN(indpro)) {
+      growthScore += clamp(indpro / 4, -1, 1);
       gN += 1.2;
     }
-    if (rateMom != null) {
-      growthScore += clamp(-rateMom / 0.35, -1, 1);
+    if (payrolls != null && !Number.isNaN(payrolls)) {
+      growthScore += clamp(payrolls / 2.5, -1, 1);
+      gN += 1.2;
+    }
+    if (retail != null && !Number.isNaN(retail)) {
+      growthScore += clamp(retail / 4, -1, 1);
       gN += 1;
     }
-    if (rateYoyDelta != null) {
-      growthScore += clamp(-rateYoyDelta / 1.5, -1, 1) * 0.8;
+    if (housing != null && !Number.isNaN(housing)) {
+      growthScore += clamp(housing / 10, -1, 1) * 0.7;
+      gN += 0.7;
+    }
+    if (unrate != null && !Number.isNaN(unrate)) {
+      growthScore += clamp((4.2 - unrate) / 1.5, -1, 1);
+      gN += 1.1;
+    }
+    if (unrateMom != null) {
+      growthScore += clamp(-unrateMom / 0.2, -1, 1);
+      gN += 0.9;
+    }
+    if (claims != null && !Number.isNaN(claims)) {
+      growthScore += clamp((220000 - claims) / 80000, -1, 1) * 0.6;
+      gN += 0.6;
+    }
+    if (claimsMom != null) {
+      growthScore += clamp(-claimsMom / 30000, -1, 1) * 0.5;
+      gN += 0.5;
+    }
+    if (curve != null && !Number.isNaN(curve)) {
+      // 曲线陡峭偏扩张；倒挂偏收缩
+      growthScore += clamp(curve / 1.2, -1, 1);
+      gN += 1.1;
+    }
+    if (curveMom != null) {
+      growthScore += clamp(curveMom / 0.4, -1, 1) * 0.5;
+      gN += 0.5;
+    }
+    if (m2 != null && !Number.isNaN(m2)) {
+      growthScore += clamp(m2 / 6, -1, 1) * 0.7;
+      gN += 0.7;
+    }
+    if (credit != null && !Number.isNaN(credit)) {
+      growthScore += clamp(credit / 5, -1, 1) * 0.7;
+      gN += 0.7;
+    }
+    if (fgVal != null && !Number.isNaN(fgVal)) {
+      growthScore += clamp((fgVal - 50) / 35, -1, 1) * 0.8;
       gN += 0.8;
+    }
+    if (rateMom != null) {
+      growthScore += clamp(-rateMom / 0.35, -1, 1) * 0.7;
+      gN += 0.7;
+    }
+    if (rateYoyDelta != null) {
+      growthScore += clamp(-rateYoyDelta / 1.5, -1, 1) * 0.5;
+      gN += 0.5;
     }
     if (rate != null && infl != null) {
       const real = rate - infl;
-      growthScore += clamp(-real / 2.5, -1, 1) * 0.7;
-      gN += 0.7;
+      growthScore += clamp(-real / 2.5, -1, 1) * 0.5;
+      gN += 0.5;
     }
-    // 无恐贪时（如中国），用 PPI 相对 CPI 的改善作弱代理
     if (gN < 0.5 && ppiMom != null && cpiMom != null) {
       growthScore += clamp((cpiMom - ppiMom) / 0.5, -1, 1);
       gN += 1;
@@ -323,9 +392,20 @@ window.CycleKondratiev = (function () {
       inflationScore,
       inputs: {
         cpi: infl,
+        core,
         ppi,
         rate,
         fg: fgVal,
+        unrate,
+        payrolls,
+        indpro,
+        retail,
+        curve,
+        m2,
+        gdp,
+        housing,
+        credit,
+        claims,
         cpiMom,
         rateMom,
       },
@@ -390,65 +470,113 @@ window.CycleKondratiev = (function () {
     return m;
   }
 
+  function monthKey(d) {
+    const s = String(d || "");
+    if (/^\d{4}-\d{2}/.test(s)) return s.slice(0, 7);
+    if (/^\d{4}$/.test(s)) return s + "-06";
+    return s.slice(0, 7);
+  }
+
+  function mergeHistories(macro) {
+    const by = new Map();
+    function put(list, key) {
+      (list || []).forEach((p) => {
+        const mk = monthKey(p.d);
+        if (!mk) return;
+        const row = by.get(mk) || { d: mk };
+        row[key] = p.v;
+        by.set(mk, row);
+      });
+    }
+    put(macro && macro.cpiHistory, "cpi");
+    put(macro && macro.coreCpiHistory, "core");
+    put(macro && macro.rateHistory, "rate");
+    put(macro && macro.ppiHistory, "ppi");
+    put(macro && macro.unrateHistory, "unrate");
+    put(macro && macro.payrollsYoYHistory, "payrolls");
+    put(macro && macro.indproYoYHistory, "indpro");
+    put(macro && macro.retailYoYHistory, "retail");
+    put(macro && macro.yieldCurveHistory, "curve");
+    put(macro && macro.m2YoYHistory, "m2");
+    put(macro && macro.gdpYoYHistory, "gdp");
+    put(macro && macro.housingYoYHistory, "housing");
+    put(macro && macro.creditYoYHistory, "credit");
+    put(macro && macro.claimsHistory, "claims");
+    return [...by.values()].sort((a, b) => String(a.d).localeCompare(String(b.d)));
+  }
+
+  function histOf(rows, i, key) {
+    return rows
+      .slice(0, i + 1)
+      .filter((r) => r[key] != null)
+      .map((r) => ({ d: r.d, v: r[key] }));
+  }
+
+  function lastOf(list) {
+    return list.length ? list[list.length - 1].v : null;
+  }
+
   /**
-   * 实时模型曲线：用历史 CPI/利率序列逐步估计阶段高度
-   * （恐贪只用于最新点，历史用宏观近似）
+   * 实时模型曲线：按月对齐多序列，逐步估计阶段高度
+   * （恐贪只用于最新点）
    */
   function realtimeSeries(macro, fg, country) {
     const code =
       country || (window.CycleState && window.CycleState.country) || "US";
-    const cpiH = (macro && macro.cpiHistory) || [];
-    const rateH = (macro && macro.rateHistory) || [];
-    const ppiH = (macro && macro.ppiHistory) || [];
-    if (cpiH.length < 6 && rateH.length < 6) {
+    const rows = mergeHistories(macro);
+    if (rows.length < 6) {
       const now = waveAtRealtime(macro, fg, code);
       return [{ d: String(Math.round(now.year)), v: now.level }];
     }
 
-    const byDate = new Map();
-    cpiH.forEach((p) => {
-      byDate.set(p.d, Object.assign(byDate.get(p.d) || { d: p.d }, { cpi: p.v }));
-    });
-    rateH.forEach((p) => {
-      const row = byDate.get(p.d) || { d: p.d };
-      row.rate = p.v;
-      byDate.set(p.d, row);
-    });
-    ppiH.forEach((p) => {
-      const row = byDate.get(p.d) || { d: p.d };
-      row.ppi = p.v;
-      byDate.set(p.d, row);
-    });
-
-    const rows = [...byDate.values()].sort((a, b) =>
-      String(a.d).localeCompare(String(b.d))
-    );
     const pts = [];
     for (let i = 0; i < rows.length; i++) {
-      const sliceCpi = rows
-        .slice(0, i + 1)
-        .filter((r) => r.cpi != null)
-        .map((r) => ({ d: r.d, v: r.cpi }));
-      const sliceRate = rows
-        .slice(0, i + 1)
-        .filter((r) => r.rate != null)
-        .map((r) => ({ d: r.d, v: r.rate }));
-      const slicePpi = rows
-        .slice(0, i + 1)
-        .filter((r) => r.ppi != null)
-        .map((r) => ({ d: r.d, v: r.ppi }));
+      const cpiH = histOf(rows, i, "cpi");
+      const coreH = histOf(rows, i, "core");
+      const rateH = histOf(rows, i, "rate");
+      const ppiH = histOf(rows, i, "ppi");
+      const unrateH = histOf(rows, i, "unrate");
+      const payrollsH = histOf(rows, i, "payrolls");
+      const indproH = histOf(rows, i, "indpro");
+      const retailH = histOf(rows, i, "retail");
+      const curveH = histOf(rows, i, "curve");
+      const m2H = histOf(rows, i, "m2");
+      const gdpH = histOf(rows, i, "gdp");
+      const housingH = histOf(rows, i, "housing");
+      const creditH = histOf(rows, i, "credit");
+      const claimsH = histOf(rows, i, "claims");
       const snap = {
-        cpiYoY: sliceCpi.length ? sliceCpi[sliceCpi.length - 1].v : null,
-        inflation: sliceCpi.length ? sliceCpi[sliceCpi.length - 1].v : null,
-        policyRate: sliceRate.length ? sliceRate[sliceRate.length - 1].v : null,
-        ppiYoY: slicePpi.length ? slicePpi[slicePpi.length - 1].v : null,
-        cpiHistory: sliceCpi,
-        rateHistory: sliceRate,
-        ppiHistory: slicePpi,
+        cpiYoY: lastOf(cpiH),
+        inflation: lastOf(cpiH),
+        coreCpiYoY: lastOf(coreH),
+        policyRate: lastOf(rateH),
+        ppiYoY: lastOf(ppiH),
+        unrate: lastOf(unrateH),
+        payrollsYoY: lastOf(payrollsH),
+        indproYoY: lastOf(indproH),
+        retailYoY: lastOf(retailH),
+        yieldCurve: lastOf(curveH),
+        m2YoY: lastOf(m2H),
+        gdpYoY: lastOf(gdpH),
+        housingYoY: lastOf(housingH),
+        creditYoY: lastOf(creditH),
+        claims: lastOf(claimsH),
+        cpiHistory: cpiH,
+        coreCpiHistory: coreH,
+        rateHistory: rateH,
+        ppiHistory: ppiH,
+        unrateHistory: unrateH,
+        payrollsYoYHistory: payrollsH,
+        indproYoYHistory: indproH,
+        retailYoYHistory: retailH,
+        yieldCurveHistory: curveH,
+        m2YoYHistory: m2H,
+        gdpYoYHistory: gdpH,
+        housingYoYHistory: housingH,
+        creditYoYHistory: creditH,
+        claimsHistory: claimsH,
       };
-      // 仅最后一点带上当前恐贪，避免历史被单一情绪水平污染
-      const fgSnap =
-        i === rows.length - 1 && fg ? fg : null;
+      const fgSnap = i === rows.length - 1 && fg ? fg : null;
       const m = waveAtRealtime(snap, fgSnap, code);
       pts.push({ d: rows[i].d, v: m.level });
     }

@@ -103,12 +103,39 @@ window.CycleAPI = (function () {
     return pts && pts.length ? pts[pts.length - 1].v : null;
   }
 
-  /** 美国宏观 */
+  /** 美国宏观：利率/物价 + 增长/信用（MacroRadar 公开 CORS） */
   async function fetchUS() {
-    const [rate, cpi, ppi, nextFomc] = await Promise.all([
-      macroRadarSeries("FEDFUNDS", 60),
-      macroRadarCompute("CPIAUCSL.yoy", 60),
-      macroRadarCompute("PPIACO.yoy", 60),
+    const [
+      rate,
+      cpi,
+      ppi,
+      coreCpi,
+      unrate,
+      payrolls,
+      indpro,
+      retail,
+      yieldCurve,
+      m2,
+      gdp,
+      housing,
+      credit,
+      claims,
+      nextFomc,
+    ] = await Promise.all([
+      macroRadarSeries("FEDFUNDS", 72),
+      macroRadarCompute("CPIAUCSL.yoy", 72),
+      macroRadarCompute("PPIACO.yoy", 72),
+      macroRadarCompute("CPILFESL.yoy", 72),
+      macroRadarSeries("UNRATE", 72),
+      macroRadarCompute("PAYEMS.yoy", 72),
+      macroRadarCompute("INDPRO.yoy", 72),
+      macroRadarCompute("RSAFS.yoy", 72),
+      macroRadarSeries("T10Y2Y", 120),
+      macroRadarCompute("M2SL.yoy", 72),
+      macroRadarCompute("GDPC1.yoy", 48),
+      macroRadarCompute("HOUST.yoy", 72),
+      macroRadarCompute("TOTALSL.yoy", 72),
+      macroRadarSeries("ICSA", 72),
       getJSON(`${FC}/next?series=fomc`),
     ]);
     const inflation = cpi; // 用 CPI 同比代表通胀
@@ -120,8 +147,30 @@ window.CycleAPI = (function () {
       cpiYoY: last(cpi),
       ppiHistory: ppi,
       ppiYoY: last(ppi),
+      coreCpiHistory: coreCpi,
+      coreCpiYoY: last(coreCpi),
       inflationHistory: inflation,
       inflation: last(inflation),
+      unrateHistory: unrate,
+      unrate: last(unrate),
+      payrollsYoYHistory: payrolls,
+      payrollsYoY: last(payrolls),
+      indproYoYHistory: indpro,
+      indproYoY: last(indpro),
+      retailYoYHistory: retail,
+      retailYoY: last(retail),
+      yieldCurveHistory: yieldCurve,
+      yieldCurve: last(yieldCurve),
+      m2YoYHistory: m2,
+      m2YoY: last(m2),
+      gdpYoYHistory: gdp,
+      gdpYoY: last(gdp),
+      housingYoYHistory: housing,
+      housingYoY: last(housing),
+      creditYoYHistory: credit,
+      creditYoY: last(credit),
+      claimsHistory: claims,
+      claims: last(claims),
       nextMeeting:
         nextFomc && nextFomc.next
           ? {
@@ -132,7 +181,7 @@ window.CycleAPI = (function () {
               },
             }
           : null,
-      dotPlot: null, // 无稳定公开 CORS 点阵图源
+      dotPlot: null,
       source: "MacroRadar / FinanceCalendar",
     };
   }
