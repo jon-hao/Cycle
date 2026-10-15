@@ -89,7 +89,7 @@ window.CycleAPI = (function () {
   async function wbInflation(code) {
     const url =
       `${WB}/country/${encodeURIComponent(code)}/indicator/FP.CPI.TOTL.ZG` +
-      `?format=jsonP&per_page=60`;
+      `?format=jsonp&per_page=60`;
     const d = await getJSONP(url, { param: "prefix", timeout: 15000 });
     if (!Array.isArray(d) || !Array.isArray(d[1])) return null;
     const pts = d[1]
