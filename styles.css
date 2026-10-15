@@ -1525,19 +1525,22 @@ button,
 
 .fg-chart-wrap {
   position: relative;
-  display: grid;
-  grid-template-columns: 10px 1fr;
-  gap: 8px;
-  align-items: stretch;
+  display: block;
   margin: 12px 0;
+  /* 左侧留给阶段条 + 间距，与 charts padT/padB 对齐 */
+  padding-left: 18px;
 }
 
 .fg-stage-bar {
+  position: absolute;
+  left: 0;
+  top: 28px; /* lineChart padT */
+  bottom: 36px; /* lineChart padB */
+  width: 10px;
   border-radius: 4px;
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  min-height: 220px;
 }
 
 .fg-stage-bar span {
