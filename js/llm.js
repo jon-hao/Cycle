@@ -219,17 +219,20 @@ window.CycleLLM = (function () {
       .trim();
   }
 
-  async function chat(system, user, onProgress) {
+  async function chat(system, userOrMessages, onProgress) {
     const eng = await ensureEngine(onProgress);
     if (!eng) return { ok: false, error: readState().text || "engine" };
     try {
+      const messages = Array.isArray(userOrMessages)
+        ? [{ role: "system", content: system }, ...userOrMessages]
+        : [
+            { role: "system", content: system },
+            { role: "user", content: userOrMessages },
+          ];
       const reply = await eng.chat.completions.create({
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: user },
-        ],
-        temperature: 0.6,
-        max_tokens: 420,
+        messages,
+        temperature: 0.45,
+        max_tokens: 700,
         extra_body: { enable_thinking: false },
       });
       const text = stripThinking(

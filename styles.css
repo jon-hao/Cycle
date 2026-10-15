@@ -1045,17 +1045,22 @@ button,
 }
 
 .agent-msg {
-  max-width: 88%;
+  width: fit-content;
+  max-width: min(88%, 36rem);
+  min-width: 2.5em;
+  box-sizing: border-box;
   padding: 10px 12px;
   border-radius: 10px;
   font-size: 0.92rem;
   line-height: 1.5;
   white-space: pre-wrap;
-  word-break: break-word;
+  word-break: keep-all;
+  overflow-wrap: break-word;
 }
 
 .agent-msg.user {
   align-self: flex-end;
+  margin-left: auto;
   background: color-mix(in srgb, var(--brand) 16%, transparent);
   color: var(--ink);
 }
