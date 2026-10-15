@@ -10,6 +10,7 @@ window.CyclePages.data = (function () {
 
   function fmtDate(d) {
     if (!d) return "—";
+    if (window.CycleTZ) return window.CycleTZ.formatYMD(d);
     return String(d).slice(0, 10).replace(/-/g, ".");
   }
 
@@ -23,7 +24,6 @@ window.CyclePages.data = (function () {
     return 0;
   }
 
-  /** 从序列推同比/环比变化（百分点） */
   function seriesDeltas(history) {
     if (!history || history.length < 2) return { mom: null, yoy: null };
     const cur = history[history.length - 1].v;
@@ -44,9 +44,8 @@ window.CyclePages.data = (function () {
       const up = n > 0;
       const flat = Math.abs(n) < 0.0005;
       const cls = flat ? "chg-flat" : up ? "chg-up" : "chg-down";
-      const arrow = flat ? "→" : up ? "⬆️" : "⬇️";
-      const sign = flat ? "" : "";
-      return `<span class="chg ${cls}">${label}${arrow}${Math.abs(n).toFixed(2)}%</span>`;
+      const arrow = flat ? "→" : up ? "↑" : "↓";
+      return `<span class="chg ${cls}">${label}<span class="chg-arrow">${arrow}</span>${Math.abs(n).toFixed(2)}%</span>`;
     }
     const y = chip(window.t("yoyShort"), deltas.yoy);
     const m = chip(window.t("momShort"), deltas.mom);
@@ -71,14 +70,29 @@ window.CyclePages.data = (function () {
     return window.t("country" + code);
   }
 
+  function nextMeetHtml(next) {
+    if (!next || !next.date) return "";
+    const lang = window.CycleState.lang;
+    const title =
+      (next.title && (next.title[lang] || next.title.zh || next.title.en)) ||
+      window.t("nextMeeting");
+    return `<div class="next-meet card-content">
+      <span class="card-label">${window.t("nextMeeting")}</span>
+      <span class="card-date">${fmtDate(next.date)}</span>
+      <span class="card-content">${title}</span>
+      <button type="button" class="btn tiny sub-inline" id="subMeet">${window.t("subscribe")}</button>
+    </div>`;
+  }
+
   function icsMeeting(next) {
     if (!next || !next.date) return;
-    const start = new Date(next.date + "T18:00:00Z");
+    const start = new Date(next.date + "T14:00:00");
     const end = new Date(start.getTime() + 2 * 60 * 60 * 1000);
-    const stamp = (d) =>
-      d.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+    const stampLocal = window.CycleTZ.icsLocalStamp;
+    const stampUtc = window.CycleTZ.icsUtcStamp;
+    const lang = window.CycleState.lang;
     const title =
-      (next.title && (next.title[window.CycleState.lang] || next.title.zh)) ||
+      (next.title && (next.title[lang] || next.title.zh || next.title.en)) ||
       window.t("nextMeeting");
     const body = [
       "BEGIN:VCALENDAR",
@@ -86,9 +100,9 @@ window.CyclePages.data = (function () {
       "PRODID:-//Cycle//EN",
       "BEGIN:VEVENT",
       "UID:fomc-" + next.date + "@cycle",
-      "DTSTAMP:" + stamp(new Date()),
-      "DTSTART:" + stamp(start),
-      "DTEND:" + stamp(end),
+      "DTSTAMP:" + stampUtc(new Date()),
+      "DTSTART:" + stampLocal(start),
+      "DTEND:" + stampLocal(end),
       "SUMMARY:" + title,
       "END:VEVENT",
       "END:VCALENDAR",
@@ -103,18 +117,26 @@ window.CyclePages.data = (function () {
 
   function openWaveModal(k, aiPayload) {
     const series = window.CycleKondratiev.longWaveSeries(new Date().getFullYear());
+    const pill = window.CycleKondratiev.pillText(k);
+    const theme =
+      k.theme ||
+      window.CycleKondratiev.themeText(
+        k.wave,
+        k.country || window.CycleState.country,
+        window.CycleState.lang
+      );
     window.CycleUI.openModal(`
       <div class="sheet-head"><h2 class="card-title">${window.t("kondratiev")}</h2><button type="button" class="icon-btn" data-close>×</button></div>
-      <p class="card-date">K${k.wave.id} · ${window.t(k.phaseKey)}</p>
-      <p class="card-content">${k.wave.theme[window.CycleState.lang]} · ${window.t(k.phaseKey + "Desc")}</p>
+      <p class="card-date"><span class="pill phase-${k.phaseKey}">${pill}</span></p>
+      <p class="card-content">${theme} · ${window.t(k.phaseKey + "Desc")}</p>
       <canvas class="chart" id="waveChart" height="220"></canvas>
       <div class="ai-host" id="aiWaveHost"></div>
     `);
     requestAnimationFrame(() => {
       window.CycleCharts.lineChart(document.getElementById("waveChart"), series, {
-        color: "#0f6e56",
+        color: (window.CyclePhaseColor && window.CyclePhaseColor[k.phaseKey]) || "#0f6e56",
         blinkAt: String(Math.round(k.year)),
-        xUnit: window.CycleState.lang === "zh" ? "年" : "Year",
+        xUnit: window.CycleState.lang === "en" ? "Year" : "年",
         yUnit: "",
         xTicks: 6,
       });
@@ -124,7 +146,7 @@ window.CyclePages.data = (function () {
         Object.assign(
           {
             waveId: k.wave.id,
-            phase: window.t(k.phaseKey),
+            phase: window.CycleKondratiev.phaseLabel(k.phaseKey),
             progress: (k.progress * 100).toFixed(0),
           },
           aiPayload || {}
@@ -154,7 +176,7 @@ window.CyclePages.data = (function () {
         Object.assign(
           {
             yUnit: "%",
-            xUnit: window.CycleState.lang === "zh" ? "时间" : "Time",
+            xUnit: window.CycleState.lang === "en" ? "Time" : "时间",
             xTicks: 5,
           },
           chartOpts || {}
@@ -172,6 +194,36 @@ window.CyclePages.data = (function () {
     });
   }
 
+  function openFearModal(fg, fgVal, trend, aiPayload) {
+    if (!fg || !fg.history) {
+      window.CycleUI.openModal(`
+        <div class="sheet-head"><h2 class="card-title">${window.t("fearGreed")}</h2><button type="button" class="icon-btn" data-close>×</button></div>
+        <p class="empty">${window.t("missing")}</p>
+      `);
+      return;
+    }
+    window.CycleUI.openModal(`
+      <div class="sheet-head"><h2 class="card-title">${window.t("fearGreed")}</h2><button type="button" class="icon-btn" data-close>×</button></div>
+      <div class="fg-chart-wrap">
+        <div class="fg-stage-bar" aria-hidden="true" title="0–25 / 25–50 / 50–75 / 75–100">
+          <span class="s-eg"></span><span class="s-g"></span><span class="s-f"></span><span class="s-ef"></span>
+        </div>
+        <canvas class="chart" id="metricChart" height="220"></canvas>
+      </div>
+      <div class="ai-host" id="aiMetricHost"></div>
+    `);
+    requestAnimationFrame(() => {
+      window.CycleCharts.lineChart(document.getElementById("metricChart"), fg.history, {
+        yUnit: "",
+        xUnit: window.CycleState.lang === "en" ? "Time" : "时间",
+        xTicks: 6,
+        color: "#3d8bfd",
+        padL: 40,
+      });
+      window.CycleAIUI.mount(document.getElementById("aiMetricHost"), "macro", aiPayload);
+    });
+  }
+
   function metricCard(id, titleHtml, valueText, subHtml) {
     const missing = valueText === window.t("missing");
     return `<div class="metric-card ${missing ? "is-missing" : ""}" data-metric="${id}" role="button" tabindex="0">
@@ -185,7 +237,7 @@ window.CyclePages.data = (function () {
     return `
       <div class="hero-row">
         <section class="panel k-panel skel-card">
-          <div class="panel-head"><h2 class="card-title">${window.t("kondratiev")}</h2><span class="pill skel-pill">…</span></div>
+          <div class="panel-head"><h2 class="card-title">${window.t("kondratiev")}</h2></div>
           <div class="skel-block skel-chart"></div>
         </section>
         <section class="metric-card fg-card skel-card">
@@ -207,8 +259,7 @@ window.CyclePages.data = (function () {
     const soft = opts && opts.soft;
     root.innerHTML = skeleton();
     const code = window.CycleState.country;
-    const lang = window.CycleState.lang;
-    const k = window.CycleKondratiev.waveAt(new Date());
+    const k = window.CycleKondratiev.waveAt(new Date(), code);
 
     let macro;
     let fg;
@@ -218,21 +269,12 @@ window.CyclePages.data = (function () {
     } else {
       [macro, fg] = await Promise.all([
         window.CycleAPI.fetchMacro(code),
-        window.CycleAPI.fetchFearGreed(),
+        window.CycleAPI.fetchFearGreed(code),
       ]);
       cache = { code, macro, fg };
     }
 
     const next = macro && macro.nextMeeting;
-    const nextRow = next
-      ? `<div class="next-meet card-content">
-          <span class="card-label">${window.t("nextMeeting")}</span>
-          <span class="card-date">${fmtDate(next.date)}</span>
-          <span class="card-content">${next.title[lang] || next.title.zh}</span>
-          <button type="button" class="btn tiny sub-inline" id="subMeet">${window.t("subscribe")}</button>
-        </div>`
-      : "";
-
     const rateD = seriesDeltas(macro && macro.rateHistory);
     const inflD = seriesDeltas(macro && macro.inflationHistory);
     const cpiD = seriesDeltas(macro && macro.cpiHistory);
@@ -246,9 +288,7 @@ window.CyclePages.data = (function () {
         <section class="panel k-panel" id="kPanel">
           <div class="panel-head">
             <h2 class="card-title">${window.t("kondratiev")}</h2>
-            <span class="pill">K${k.wave.id} · ${window.t(k.phaseKey)}</span>
           </div>
-          <p class="card-content k-desc">${k.wave.theme[lang]} · ${window.t(k.phaseKey + "Desc")}</p>
           <button type="button" class="k-hit" id="openWave" aria-label="${window.t("kondratiev")}">
             <svg id="kQuad" class="k-quad"></svg>
           </button>
@@ -259,7 +299,7 @@ window.CyclePages.data = (function () {
             <span class="metric-open card-date">${fg ? window.t("openChart") : ""}</span></div>
           ${
             fg
-              ? `<svg id="fgGauge" class="fg-gauge"></svg>`
+              ? `<div class="fg-gauge-wrap"><svg id="fgGauge" class="fg-gauge"></svg></div>`
               : `<div class="metric-value card-value">${window.t("missing")}</div>`
           }
         </section>
@@ -272,28 +312,25 @@ window.CyclePages.data = (function () {
           macro && macro.policyRate != null
             ? fmt(macro.policyRate) + "%"
             : window.t("missing"),
-          deltaHtml(rateD) + nextRow
+          deltaHtml(rateD)
         )}
         ${metricCard(
           "inflation",
           window.t("inflation"),
           macro && macro.inflation != null ? fmt(macro.inflation, 1) + "%" : window.t("missing"),
-          deltaHtml(inflD) +
-            `<span class="term-note card-content">${window.t("inflationHint")}</span>`
+          deltaHtml(inflD)
         )}
         ${metricCard(
           "cpi",
           window.t("cpi"),
           macro && macro.cpiYoY != null ? fmt(macro.cpiYoY, 1) + "%" : window.t("missing"),
-          deltaHtml(cpiD) +
-            `<span class="term-note card-content">${window.t("cpiHint")}</span>`
+          deltaHtml(cpiD)
         )}
         ${metricCard(
           "ppi",
           window.t("ppi"),
           macro && macro.ppiYoY != null ? fmt(macro.ppiYoY, 1) + "%" : window.t("missing"),
-          deltaHtml(ppiD) +
-            `<span class="term-note card-content">${window.t("ppiHint")}</span>`
+          deltaHtml(ppiD)
         )}
       </section>
     `;
@@ -306,7 +343,7 @@ window.CyclePages.data = (function () {
     const aiPayload = {
       countryLabel: countryLabel(code),
       waveId: k.wave.id,
-      phase: window.t(k.phaseKey),
+      phase: window.CycleKondratiev.phaseLabel(k.phaseKey),
       rate: macro && macro.policyRate,
       inflation: macro && macro.inflation,
       cpi: macro && macro.cpiYoY,
@@ -319,35 +356,14 @@ window.CyclePages.data = (function () {
       openWaveModal(k, aiPayload);
     });
 
-    const sub = root.querySelector("#subMeet");
-    if (sub && next) {
-      sub.addEventListener("click", (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        icsMeeting(next);
-      });
-    }
-
     function openMetric(id) {
       if (id === "fear") {
-        openSeriesModal(
-          window.t("fearGreed"),
-          fg && fg.history,
-          fg ? `<svg id="fgGaugeModal" class="fg-gauge"></svg>` : "",
-          aiPayload,
-          { yUnit: "", xTicks: 6 }
-        );
-        if (fg) {
-          requestAnimationFrame(() => {
-            const g = document.getElementById("fgGaugeModal");
-            if (g) window.CycleCharts.fearGreedGauge(g, fgVal, trend);
-          });
-        }
+        openFearModal(fg, fgVal, trend, aiPayload);
       } else if (id === "rate") {
         openSeriesModal(
           `${bankLabel(code)} · ${rateLabel(code)}`,
           macro && macro.rateHistory,
-          nextRow,
+          nextMeetHtml(next),
           aiPayload
         );
       } else if (id === "inflation") {

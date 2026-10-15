@@ -1,6 +1,12 @@
 window.CycleState = {
   country: localStorage.getItem("cycle-country") || "US",
-  lang: localStorage.getItem("cycle-lang") || "zh",
+  lang: (function () {
+    const raw = localStorage.getItem("cycle-lang") || "zh";
+    if (raw === "zh-Hans" || raw === "zh-CN") return "zh";
+    if (raw === "zh-Hant" || raw === "zh-TW") return "zh-TW";
+    if (raw === "en" || raw === "zh" || raw === "zh-TW") return raw;
+    return "zh";
+  })(),
   theme: localStorage.getItem("cycle-theme") || "light",
   page: "data",
 };
@@ -9,7 +15,9 @@ window.CycleUI = {
   openModal(html) {
     const modal = document.getElementById("modal");
     const sheet = document.getElementById("sheet");
+    sheet.className = "sheet";
     sheet.innerHTML = html;
+    modal.classList.remove("agent-modal");
     modal.classList.add("open");
     modal.setAttribute("aria-hidden", "false");
     document.documentElement.classList.add("modal-open");
@@ -18,14 +26,23 @@ window.CycleUI = {
     });
   },
   closeModal() {
+    if (modalHasAgent()) {
+      window.CycleAgent.close();
+      return;
+    }
     const modal = document.getElementById("modal");
     const ae = document.activeElement;
     if (ae && modal.contains(ae) && typeof ae.blur === "function") ae.blur();
-    modal.classList.remove("open");
+    modal.classList.remove("open", "agent-modal");
     modal.setAttribute("aria-hidden", "true");
     document.documentElement.classList.remove("modal-open");
   },
 };
+
+function modalHasAgent() {
+  const sheet = document.getElementById("sheet");
+  return sheet && sheet.classList.contains("agent-sheet");
+}
 
 /** 方形自定义下拉 */
 window.CycleSelect = (function () {
@@ -134,8 +151,8 @@ window.CycleSelect = (function () {
 (function () {
   const els = {
     country: document.getElementById("countrySelect"),
+    lang: document.getElementById("langSelect"),
     themeBtn: document.getElementById("themeBtn"),
-    langBtn: document.getElementById("langBtn"),
     main: document.getElementById("main"),
     modal: document.getElementById("modal"),
     footer: document.getElementById("siteFooter"),
@@ -147,6 +164,7 @@ window.CycleSelect = (function () {
   };
 
   let countryCtl = null;
+  let langCtl = null;
   let refreshing = false;
 
   function countryOptions() {
@@ -157,23 +175,41 @@ window.CycleSelect = (function () {
     ];
   }
 
+  function langOptions() {
+    return [
+      { value: "zh", label: "简体中文" },
+      { value: "zh-TW", label: "繁體中文" },
+      { value: "en", label: "English" },
+    ];
+  }
+
   function applyTheme() {
     document.documentElement.setAttribute("data-theme", window.CycleState.theme);
     const dark = window.CycleState.theme === "dark";
     const sun = els.themeBtn.querySelector(".theme-sun");
     const moon = els.themeBtn.querySelector(".theme-moon");
-    if (sun) sun.hidden = dark;
-    if (moon) moon.hidden = !dark;
+    if (sun) {
+      if (dark) sun.setAttribute("hidden", "");
+      else sun.removeAttribute("hidden");
+    }
+    if (moon) {
+      if (dark) moon.removeAttribute("hidden");
+      else moon.setAttribute("hidden", "");
+    }
   }
 
   function applyLang() {
+    const lang = window.CycleState.lang;
     document.documentElement.lang =
-      window.CycleState.lang === "zh" ? "zh-CN" : "en";
+      lang === "zh-TW" ? "zh-TW" : lang === "en" ? "en" : "zh-CN";
     document.querySelectorAll("[data-i18n]").forEach((node) => {
       node.textContent = window.t(node.getAttribute("data-i18n"));
     });
     if (countryCtl) {
       countryCtl.refresh(countryOptions(), window.CycleState.country);
+    }
+    if (langCtl) {
+      langCtl.refresh(langOptions(), window.CycleState.lang);
     }
     paintModelFab(window.CycleLLM.getStatus());
     moveIndicator(false);
@@ -187,18 +223,16 @@ window.CycleSelect = (function () {
     if (els.modelFabRing) {
       els.modelFabRing.style.setProperty("--p", String(st.progress || 0));
     }
+    // 始终显示 AI 文案：未就绪灰色，就绪绿色
+    els.modelFabLabel.textContent = "AI";
     if (status === "ready") {
-      els.modelFabLabel.textContent = "✓";
       els.modelFab.title = window.t("modelReady");
     } else if (status === "downloading") {
-      els.modelFabLabel.textContent = pct + "%";
       els.modelFab.title =
         window.t("modelDownloading") + " " + pct + "%" + (st.text ? " · " + st.text : "");
     } else if (status === "error") {
-      els.modelFabLabel.textContent = "!";
       els.modelFab.title = window.t("modelError") + (st.text ? ": " + st.text : "");
     } else {
-      els.modelFabLabel.textContent = "AI";
       els.modelFab.title = window.t("modelDownload");
     }
   }
@@ -208,7 +242,10 @@ window.CycleSelect = (function () {
     window.CycleLLM.onState(paintModelFab);
     els.modelFab.addEventListener("click", () => {
       const st = window.CycleLLM.getStatus();
-      if (st.status === "ready") return;
+      if (st.status === "ready") {
+        window.CycleAgent.open();
+        return;
+      }
       if (st.status === "downloading") return;
       window.CycleLLM.startDownload();
     });
@@ -328,19 +365,23 @@ window.CycleSelect = (function () {
       }
     );
 
+    langCtl = window.CycleSelect.mount(
+      els.lang,
+      langOptions(),
+      window.CycleState.lang,
+      (v) => {
+        window.CycleState.lang = v;
+        localStorage.setItem("cycle-lang", v);
+        applyLang();
+        renderPage(false, { soft: true });
+      }
+    );
+
     els.themeBtn.addEventListener("click", () => {
       window.CycleState.theme =
         window.CycleState.theme === "dark" ? "light" : "dark";
       localStorage.setItem("cycle-theme", window.CycleState.theme);
       applyTheme();
-    });
-
-    els.langBtn.addEventListener("click", () => {
-      window.CycleState.lang = window.CycleState.lang === "zh" ? "en" : "zh";
-      localStorage.setItem("cycle-lang", window.CycleState.lang);
-      applyLang();
-      // 只切换文案，不重新拉数据
-      renderPage(false, { soft: true });
     });
 
     document.querySelectorAll(".nav-btn").forEach((b) => {
@@ -367,7 +408,6 @@ window.CycleSelect = (function () {
 
     window.addEventListener("resize", () => moveIndicator(false));
 
-    // 锁住外壳：禁止 body 橡皮筋；仅 main 滚动
     document.addEventListener(
       "touchmove",
       (e) => {
@@ -390,7 +430,6 @@ window.CycleSelect = (function () {
     wirePullToRefresh();
     applyLang();
 
-    // 若上次下载未完成 / 已就绪，刷新后自动续上（不自动开下新模型）
     if (window.CycleLLM && window.CycleLLM.resumeIfNeeded) {
       window.CycleLLM.resumeIfNeeded();
     }

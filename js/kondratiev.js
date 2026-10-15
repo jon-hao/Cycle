@@ -1,11 +1,75 @@
 window.CycleKondratiev = (function () {
   const WAVES = [
-    { id: 1, start: 1780, end: 1845, theme: { zh: "蒸汽 / 纺织", en: "Steam / Textiles" } },
-    { id: 2, start: 1845, end: 1895, theme: { zh: "铁路 / 钢铁", en: "Rail / Steel" } },
-    { id: 3, start: 1895, end: 1945, theme: { zh: "电力 / 化工", en: "Electricity / Chemicals" } },
-    { id: 4, start: 1945, end: 1982, theme: { zh: "汽车 / 石油", en: "Autos / Oil" } },
-    { id: 5, start: 1982, end: 2025, theme: { zh: "信息科技 / 互联网", en: "IT / Internet" } },
-    { id: 6, start: 2025, end: 2055, theme: { zh: "人工智能 / 绿色能源", en: "AI / Green energy" } },
+    {
+      id: 1,
+      start: 1780,
+      end: 1845,
+      theme: {
+        zh: "蒸汽 / 纺织",
+        "zh-TW": "蒸汽 / 紡織",
+        en: "Steam / Textiles",
+      },
+    },
+    {
+      id: 2,
+      start: 1845,
+      end: 1895,
+      theme: {
+        zh: "铁路 / 钢铁",
+        "zh-TW": "鐵路 / 鋼鐵",
+        en: "Rail / Steel",
+      },
+    },
+    {
+      id: 3,
+      start: 1895,
+      end: 1945,
+      theme: {
+        zh: "电力 / 化工",
+        "zh-TW": "電力 / 化工",
+        en: "Electricity / Chemicals",
+      },
+    },
+    {
+      id: 4,
+      start: 1945,
+      end: 1982,
+      theme: {
+        zh: "汽车 / 石油",
+        "zh-TW": "汽車 / 石油",
+        en: "Autos / Oil",
+      },
+    },
+    {
+      id: 5,
+      start: 1982,
+      end: 2025,
+      theme: {
+        zh: "信息科技 / 互联网",
+        "zh-TW": "資訊科技 / 網際網路",
+        en: "IT / Internet",
+      },
+      themeCN: {
+        zh: "改革开放 / 制造业升级",
+        "zh-TW": "改革開放 / 製造業升級",
+        en: "Reform & manufacturing ascent",
+      },
+    },
+    {
+      id: 6,
+      start: 2025,
+      end: 2055,
+      theme: {
+        zh: "人工智能 / 绿色能源",
+        "zh-TW": "人工智慧 / 綠色能源",
+        en: "AI / Green energy",
+      },
+      themeCN: {
+        zh: "新能源 / 高端制造 / 数字经济",
+        "zh-TW": "新能源 / 高端製造 / 數位經濟",
+        en: "NEV / Advanced manufacturing / Digital economy",
+      },
+    },
   ];
 
   const PHASES = [
@@ -15,15 +79,30 @@ window.CycleKondratiev = (function () {
     { key: "winter", start: 0.75, end: 1 },
   ];
 
+  /** 相对美国的年份偏移：中国工业化/长波切入更晚 */
+  function countryYearOffset(country) {
+    if (country === "CN") return -7.5;
+    if (country === "GLOBAL") return -2;
+    return 0;
+  }
+
   function clamp01(v) {
     return Math.max(0, Math.min(1, v));
   }
 
-  function waveAt(date) {
-    const y =
+  function themeText(wave, country, lang) {
+    const pack =
+      country === "CN" && wave.themeCN ? wave.themeCN : wave.theme;
+    return pack[lang] || pack.zh || pack.en;
+  }
+
+  function waveAt(date, country) {
+    const code = country || (window.CycleState && window.CycleState.country) || "US";
+    const y0 =
       date instanceof Date
         ? date.getFullYear() + (date.getMonth() + date.getDate() / 30) / 12
         : Number(date);
+    const y = y0 + countryYearOffset(code);
     let wave = WAVES[WAVES.length - 1];
     for (let i = 0; i < WAVES.length; i++) {
       if (y >= WAVES[i].start && y < WAVES[i].end) {
@@ -38,7 +117,6 @@ window.CycleKondratiev = (function () {
     const local =
       (progress - phase.start) / Math.max(0.0001, phase.end - phase.start);
 
-    // 顺时针：春右上 → 夏左上 → 秋左下 → 冬右下
     const base = {
       spring: -Math.PI / 4,
       summer: (-3 * Math.PI) / 4,
@@ -48,7 +126,6 @@ window.CycleKondratiev = (function () {
     const angle = base + (local - 0.5) * (Math.PI / 6);
     const radius = 0.58 + local * 0.22;
 
-    // 方向：沿长波向前（进度增加）
     const nextProgress = clamp01(progress + 0.02);
     const nextPhase =
       PHASES.find((p) => nextProgress >= p.start && nextProgress < p.end) ||
@@ -75,16 +152,16 @@ window.CycleKondratiev = (function () {
       dx: Math.cos(nextAngle) * nextRadius - Math.cos(angle) * radius,
       dy: Math.sin(nextAngle) * nextRadius - Math.sin(angle) * radius,
       year: y,
+      country: code,
+      theme: themeText(wave, code, (window.CycleState && window.CycleState.lang) || "zh"),
     };
   }
 
-  /** 500 年正弦示意长波（用于弹窗波形） */
   function longWaveSeries(centerYear) {
     const start = centerYear - 250;
     const end = centerYear + 250;
     const pts = [];
     for (let y = start; y <= end; y += 1) {
-      // 约 54 年周期，叠加缓变趋势
       const v =
         Math.sin(((y - 1780) / 54) * Math.PI * 2) * 0.85 +
         Math.sin(((y - 1780) / 110) * Math.PI * 2) * 0.25;
@@ -93,14 +170,32 @@ window.CycleKondratiev = (function () {
     return pts;
   }
 
-  function shortHeader(lang) {
-    const now = waveAt(new Date());
+  function phaseLabel(phaseKey) {
+    return window.t(phaseKey + "Short");
+  }
+
+  function pillText(model) {
+    const k = model || waveAt(new Date());
+    return `K${k.wave.id} · ${phaseLabel(k.phaseKey)}`;
+  }
+
+  function shortHeader(lang, country) {
+    const now = waveAt(new Date(), country);
     return {
-      text: `K${now.wave.id} · ${window.t(now.phaseKey)}`,
-      detail: now.wave.theme[lang] || now.wave.theme.zh,
+      text: pillText(now),
+      detail: themeText(now.wave, now.country, lang || "zh"),
       model: now,
     };
   }
 
-  return { WAVES, PHASES, waveAt, longWaveSeries, shortHeader };
+  return {
+    WAVES,
+    PHASES,
+    waveAt,
+    longWaveSeries,
+    shortHeader,
+    themeText,
+    phaseLabel,
+    pillText,
+  };
 })();

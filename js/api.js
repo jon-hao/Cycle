@@ -205,7 +205,9 @@ window.CycleAPI = (function () {
     return fetchUS();
   }
 
-  async function fetchFearGreed() {
+  async function fetchFearGreed(country) {
+    // CNN Fear & Greed 面向美股情绪；中国暂无对等公开源
+    if (country === "CN") return null;
     const d = await getJSON(FG);
     if (!d || !Array.isArray(d.values) || !d.values.length) return null;
     const dates = d.dates || [];
@@ -301,11 +303,25 @@ window.CycleAPI = (function () {
       const time = it.pubDate
         ? new Date(it.pubDate).toISOString()
         : new Date().toISOString();
+      let image = null;
+      if (it.thumbnail) image = it.thumbnail;
+      else if (it.enclosure && it.enclosure.link && /image/i.test(it.enclosure.type || "image"))
+        image = it.enclosure.link;
+      else if (Array.isArray(it.enclosure) && it.enclosure[0] && it.enclosure[0].link)
+        image = it.enclosure[0].link;
+      else {
+        const m = String(it.description || it.content || "").match(
+          /<img[^>]+src=["']([^"']+)["']/i
+        );
+        if (m) image = m[1];
+      }
       return {
         id: it.guid || it.link || title + i,
         title,
         summary,
         time,
+        link: it.link || it.url || null,
+        image,
         important: true,
         countryGuess: guessCountry(title + " " + summary),
       };
@@ -355,16 +371,19 @@ window.CycleAPI = (function () {
     }
 
     const titleRaw = e.title || e.name || "";
+    const isHol = e.impact === "Holiday" || e.tag === "holiday";
     return {
       id: e.url || e.id || titleRaw + (e.date || e.time_utc || ""),
       country,
       datetime: e.time_utc || e.date || e.datetime,
       title: titleRaw,
+      holidayName: isHol ? titleRaw : null,
+      market: isHol ? country : null,
       forecast: e.forecast || e.consensus || "—",
       actual: e.actual == null || e.actual === "" ? null : e.actual,
       previous: e.previous || e.prior || "—",
       importance: high ? 3 : 1,
-      tag: e.impact === "Holiday" ? "holiday" : e.tag || null,
+      tag: isHol ? "holiday" : e.tag || null,
       source,
     };
   }
@@ -403,11 +422,14 @@ window.CycleAPI = (function () {
         const d = h.date || h.d;
         if (!d) return;
         if (d < from || d > to) return;
+        const name = h.name || h.title || "";
         out.push({
           id: "hol-" + d + "-" + i,
           country: "US",
-          datetime: d + "T00:00:00Z",
-          title: h.name || h.title || "Market Holiday",
+          datetime: d + "T13:00:00",
+          title: name || "US Equity Market Holiday",
+          holidayName: name,
+          market: "US",
           forecast: "—",
           actual: "—",
           previous: "—",
@@ -431,6 +453,17 @@ window.CycleAPI = (function () {
     }
     function dayKey(e) {
       const d = e.datetime ? String(e.datetime).slice(0, 10) : "";
+      if (e.tag === "holiday") {
+        return (
+          d +
+          "|hol|" +
+          (e.country || "") +
+          "|" +
+          String(e.holidayName || e.title || "")
+            .toLowerCase()
+            .slice(0, 48)
+        );
+      }
       const kind =
         (window.CycleCalI18n && window.CycleCalI18n.dedupeKey(e.title)) ||
         String(e.title || "").toLowerCase();

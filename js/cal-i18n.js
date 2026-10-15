@@ -183,7 +183,7 @@ window.CycleCalI18n = (function () {
       en: "PBOC-related Release",
     },
     {
-      re: /Market\s*Holiday|Bank\s*Holiday|休市|节假日/i,
+      re: /^Market\s*Holiday$|^Bank\s*Holiday$|^休市$|^节假日$/i,
       zh: "市场休市",
       en: "Market Holiday",
     },
@@ -195,19 +195,85 @@ window.CycleCalI18n = (function () {
   ];
 
   const HOLIDAY_ZH = {
-    "New Year's Day": "元旦（休市）",
-    "Martin Luther King Jr. Day": "马丁·路德·金日（休市）",
-    "Presidents' Day": "总统日（休市）",
-    "Good Friday": "耶稣受难日（休市）",
-    "Memorial Day": "阵亡将士纪念日（休市）",
-    Juneteenth: "六月节（休市）",
-    "Independence Day": "独立日（休市）",
-    "Labor Day": "劳工节（休市）",
-    "Columbus Day": "哥伦布日（休市）",
-    Thanksgiving: "感恩节（休市）",
-    Christmas: "圣诞节（休市）",
-    "Christmas Day": "圣诞节（休市）",
+    "New Year's Day": "元旦",
+    "Martin Luther King Jr. Day": "马丁·路德·金日",
+    "Martin Luther King": "马丁·路德·金日",
+    "Presidents' Day": "总统日",
+    "Presidents Day": "总统日",
+    "Good Friday": "耶稣受难日",
+    "Memorial Day": "阵亡将士纪念日",
+    Juneteenth: "六月节",
+    "Independence Day": "独立日",
+    "Labor Day": "劳工节",
+    "Columbus Day": "哥伦布日",
+    Thanksgiving: "感恩节",
+    "Thanksgiving Day": "感恩节",
+    Christmas: "圣诞节",
+    "Christmas Day": "圣诞节",
   };
+
+  const HOLIDAY_TW = {
+    "New Year's Day": "元旦",
+    "Martin Luther King Jr. Day": "馬丁·路德·金日",
+    "Presidents' Day": "總統日",
+    "Good Friday": "耶穌受難日",
+    "Memorial Day": "陣亡將士紀念日",
+    Juneteenth: "六月節",
+    "Independence Day": "獨立日",
+    "Labor Day": "勞工節",
+    "Columbus Day": "哥倫布日",
+    Thanksgiving: "感恩節",
+    Christmas: "聖誕節",
+    "Christmas Day": "聖誕節",
+  };
+
+  function marketLabel(country, lang) {
+    if (country === "US") {
+      if (lang === "en") return "US equity market holiday";
+      if (lang === "zh-TW") return "美國股市休市";
+      return "美国股市休市";
+    }
+    if (country === "CN") {
+      if (lang === "en") return "China market holiday";
+      if (lang === "zh-TW") return "中國市場休市";
+      return "中国市场休市";
+    }
+    if (lang === "en") return "Market holiday";
+    if (lang === "zh-TW") return "市場休市";
+    return "市场休市";
+  }
+
+  function holidayDisplay(raw, lang, meta) {
+    const title = String(raw || "").trim();
+    const country = (meta && (meta.market || meta.country)) || "US";
+    let name = (meta && meta.holidayName) || title;
+    let named = null;
+    const pack = lang === "zh-TW" ? HOLIDAY_TW : HOLIDAY_ZH;
+    if (lang !== "en") {
+      for (const [en, zh] of Object.entries(pack)) {
+        if (name.toLowerCase().includes(en.toLowerCase())) {
+          named = zh;
+          break;
+        }
+      }
+    } else {
+      for (const en of Object.keys(HOLIDAY_ZH)) {
+        if (name.toLowerCase().includes(en.toLowerCase())) {
+          named = en;
+          break;
+        }
+      }
+    }
+    const market = marketLabel(country, lang);
+    if (named) return `${market} · ${named}`;
+    if (/market\s*holiday|bank\s*holiday|休市/i.test(name) && !named) {
+      return market;
+    }
+    if (name && !/market\s*holiday|bank\s*holiday|^休市$/i.test(name)) {
+      return `${market} · ${name}`;
+    }
+    return market;
+  }
 
   /** 用于去重的规范化键（同比/环比/核心 分开） */
   function dedupeKey(title) {
@@ -232,25 +298,38 @@ window.CycleCalI18n = (function () {
     return kind + "|" + period;
   }
 
-  function translateTitle(raw, lang) {
+  function translateTitle(raw, lang, meta) {
     const title = String(raw || "").trim();
     if (!title) return title;
+    const L = lang === "zh-TW" ? "zh-TW" : lang === "en" ? "en" : "zh";
 
-    if (lang === "zh") {
-      for (const [en, zh] of Object.entries(HOLIDAY_ZH)) {
-        if (title.toLowerCase().includes(en.toLowerCase())) return zh;
-      }
+    if (
+      (meta && meta.tag === "holiday") ||
+      /Market\s*Holiday|Bank\s*Holiday|休市|节假日|節假日/i.test(title) ||
+      Object.keys(HOLIDAY_ZH).some((k) => title.toLowerCase().includes(k.toLowerCase()))
+    ) {
+      return holidayDisplay(title, L, meta);
     }
 
     for (const rule of RULES) {
       if (!rule.re.test(title)) continue;
-      const out = lang === "zh" ? rule.zh : rule.en;
-      if (out) return out;
+      if (L === "en") return rule.en || title;
+      if (L === "zh-TW") {
+        return window.CycleTranslate
+          ? window.CycleTranslate.toTraditional(rule.zh || title)
+          : rule.zh || title;
+      }
+      return rule.zh || title;
     }
 
     const hasCJK = /[\u4e00-\u9fff]/.test(title);
-    if (lang === "zh" && hasCJK) return title;
-    if (lang === "en" && !hasCJK) return title;
+    if (L === "zh" && hasCJK) return title;
+    if (L === "zh-TW" && hasCJK) {
+      return window.CycleTranslate
+        ? window.CycleTranslate.toTraditional(title)
+        : title;
+    }
+    if (L === "en" && !hasCJK) return title;
     return title;
   }
 

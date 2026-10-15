@@ -162,19 +162,23 @@ window.CycleLLM = (function () {
     return Promise.resolve(null);
   }
 
+  function isZh(lang) {
+    return lang === "zh" || lang === "zh-TW" || lang === "zh-Hans" || lang === "zh-Hant";
+  }
+
   function colloquialSystem(lang, kind) {
     if (kind === "news") {
-      return lang === "zh"
+      return isZh(lang)
         ? "你是宏观市场分析员。根据新闻判断可能受影响的行业或板块（如银行、地产、科技、能源、消费、出口等），说明为什么；用大白话分三段：市场含义、可能受益板块、可能承压板块。不要复述标题，不要喊买卖。"
         : "You are a macro desk analyst. Infer which industries/sectors may be affected and why. Reply in 3 plain parts: market implication, sectors that may benefit, sectors that may struggle. Do not restate the headline. No trade calls.";
     }
-    return lang === "zh"
+    return isZh(lang)
       ? "你是宏观市场分析员。根据给出的数据判断当前市场处于什么状态（如偏紧/偏松、风险偏好高低、通胀压力等），用大白话分三段：市场状态判断、谁可能更舒服、谁可能更难受。不要把数字复述一遍当分析，不要喊买卖，不要输出思考过程。"
       : "You are a macro desk analyst. Infer the market regime from the numbers (tight/loose, risk appetite, inflation pressure). Reply in 3 plain parts: regime call, who may benefit, who may struggle. Do not recite the input numbers. No trade calls. No chain-of-thought.";
   }
 
   function fallback(kind, payload, lang) {
-    const zh = lang === "zh";
+    const zh = isZh(lang);
     const rate =
       payload.rate == null || Number.isNaN(Number(payload.rate))
         ? zh
@@ -245,25 +249,21 @@ window.CycleLLM = (function () {
     const system = colloquialSystem(lang, kind);
     let user = "";
     if (kind === "macro") {
-      user =
-        lang === "zh"
-          ? `背景数据（勿复述，只用来判断状态）：国家=${payload.countryLabel}；康波=K${payload.waveId} ${payload.phase}；利率=${payload.rate}；通胀=${payload.inflation}；CPI=${payload.cpi}；PPI=${payload.ppi}；恐慌贪婪=${payload.fearGreed}。请判断市场状态。`
-          : `Background (do not recite): country=${payload.countryLabel}; wave=K${payload.waveId} ${payload.phase}; rate=${payload.rate}; inflation=${payload.inflation}; CPI=${payload.cpi}; PPI=${payload.ppi}; Fear&Greed=${payload.fearGreed}. Infer the market regime.`;
+      user = isZh(lang)
+        ? `背景数据（勿复述，只用来判断状态）：国家=${payload.countryLabel}；康波=K${payload.waveId} ${payload.phase}；利率=${payload.rate}；通胀=${payload.inflation}；CPI=${payload.cpi}；PPI=${payload.ppi}；恐慌贪婪=${payload.fearGreed}。请判断市场状态。`
+        : `Background (do not recite): country=${payload.countryLabel}; wave=K${payload.waveId} ${payload.phase}; rate=${payload.rate}; inflation=${payload.inflation}; CPI=${payload.cpi}; PPI=${payload.ppi}; Fear&Greed=${payload.fearGreed}. Infer the market regime.`;
     } else if (kind === "news") {
-      user =
-        lang === "zh"
-          ? `新闻：${payload.title}\n摘要：${payload.summary}\n请分析可能影响哪些行业/板块。`
-          : `Headline: ${payload.title}\nSummary: ${payload.summary}\nWhich industries/sectors may be affected?`;
+      user = isZh(lang)
+        ? `新闻：${payload.title}\n摘要：${payload.summary}\n请分析可能影响哪些行业/板块。`
+        : `Headline: ${payload.title}\nSummary: ${payload.summary}\nWhich industries/sectors may be affected?`;
     } else if (kind === "wave") {
-      user =
-        lang === "zh"
-          ? `康波：K${payload.waveId}，阶段=${payload.phase}，进度=${payload.progress}%。判断当前宏观气候与市场含义，不要只复述阶段名。`
-          : `Kondratiev: K${payload.waveId}, phase=${payload.phase}, progress=${payload.progress}%. Infer climate and market meaning; do not just restate the phase.`;
+      user = isZh(lang)
+        ? `康波：K${payload.waveId}，阶段=${payload.phase}，进度=${payload.progress}%。判断当前宏观气候与市场含义，不要只复述阶段名。`
+        : `Kondratiev: K${payload.waveId}, phase=${payload.phase}, progress=${payload.progress}%. Infer climate and market meaning; do not just restate the phase.`;
     } else {
-      user =
-        lang === "zh"
-          ? `数据事件：${payload.title}；期望=${payload.forecast}；公布=${payload.actual}；前值=${payload.previous}。判断对市场状态的含义。`
-          : `Release: ${payload.title}; forecast=${payload.forecast}; actual=${payload.actual}; previous=${payload.previous}. What does it imply for market regime?`;
+      user = isZh(lang)
+        ? `数据事件：${payload.title}；期望=${payload.forecast}；公布=${payload.actual}；前值=${payload.previous}。判断对市场状态的含义。`
+        : `Release: ${payload.title}; forecast=${payload.forecast}; actual=${payload.actual}; previous=${payload.previous}. What does it imply for market regime?`;
     }
 
     const live = await chat(system, user, onProgress);
@@ -295,6 +295,7 @@ window.CycleLLM = (function () {
     settings,
     ping,
     interpret,
+    chat,
     warmup,
     ensureEngine,
     hasWebGPU,

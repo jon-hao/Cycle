@@ -24,15 +24,29 @@ window.CyclePages.calendar = (function () {
     );
   }
   function locale() {
-    return window.CycleState.lang === "zh" ? "zh-CN" : "en-US";
+    return window.CycleTZ ? window.CycleTZ.locale() : "zh-CN";
   }
-  function trTitle(title) {
-    return window.CycleCalI18n.translateTitle(title, window.CycleState.lang);
+  function trTitle(title, meta) {
+    return window.CycleCalI18n.translateTitle(
+      title,
+      window.CycleState.lang,
+      meta || null
+    );
   }
   function mondayOf(d) {
     const day = d.getDay();
     const offset = day === 0 ? -6 : 1 - day;
     return startOfDay(addDays(d, offset));
+  }
+
+  function isDataEvent(e) {
+    if (!e) return false;
+    if (e.tag === "holiday" || e.tag === "witching") return false;
+    const t = String(e.title || "");
+    if (/holiday|休市|witching|四巫|closed|bank holiday/i.test(t)) return false;
+    const hasNum = (v) =>
+      v != null && v !== "" && v !== "—" && v !== "-" && !/^n\/?a$/i.test(String(v));
+    return hasNum(e.forecast) || hasNum(e.actual) || hasNum(e.previous);
   }
 
   function formatHeading(d) {
@@ -46,21 +60,29 @@ window.CyclePages.calendar = (function () {
   function icsForEvent(e) {
     const start = new Date(e.datetime);
     const end = new Date(start.getTime() + 30 * 60 * 1000);
-    const stamp = (x) =>
-      x.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
-    const title = trTitle(e.title);
-    const desc = `${window.t("forecast")}: ${e.forecast}; ${window.t("actual")}: ${e.actual ?? "—"}; ${window.t("previous")}: ${e.previous}`;
+    const stampLocal = window.CycleTZ.icsLocalStamp;
+    const stampUtc = window.CycleTZ.icsUtcStamp;
+    const title = trTitle(e.title, e);
+    const descParts = [];
+    if (isDataEvent(e)) {
+      descParts.push(
+        `${window.t("forecast")}: ${e.forecast}; ${window.t("actual")}: ${
+          e.actual ?? "—"
+        }; ${window.t("previous")}: ${e.previous}`
+      );
+    }
+    const desc = descParts.join(" ");
     return [
       "BEGIN:VCALENDAR",
       "VERSION:2.0",
       "PRODID:-//Cycle//EN",
       "BEGIN:VEVENT",
       "UID:" + String(e.id).slice(0, 64) + "@cycle",
-      "DTSTAMP:" + stamp(new Date()),
-      "DTSTART:" + stamp(start),
-      "DTEND:" + stamp(end),
+      "DTSTAMP:" + stampUtc(new Date()),
+      "DTSTART:" + stampLocal(start),
+      "DTEND:" + stampLocal(end),
       "SUMMARY:" + String(title).replace(/\n/g, " "),
-      "DESCRIPTION:" + desc.replace(/\n/g, "\\n"),
+      "DESCRIPTION:" + String(desc).replace(/\n/g, "\\n"),
       "END:VEVENT",
       "END:VCALENDAR",
     ].join("\r\n");
@@ -85,11 +107,12 @@ window.CyclePages.calendar = (function () {
   }
 
   async function openEvent(e) {
-    const time = new Date(e.datetime).toLocaleString(locale(), {
+    const time = window.CycleTZ.formatDateTime(e.datetime, {
       month: "short",
       day: "numeric",
       hour: "2-digit",
       minute: "2-digit",
+      hour12: false,
     });
     const tag =
       e.tag === "holiday"
@@ -97,41 +120,40 @@ window.CyclePages.calendar = (function () {
         : e.tag === "witching"
           ? window.t("witching")
           : window.t("country" + (e.country || "GLOBAL"));
-    const title = trTitle(e.title);
+    const title = trTitle(e.title, e);
+    const data = isDataEvent(e);
+    const kv = data
+      ? `<ul class="kv">
+        <li><span class="card-label">${window.t("forecast")}</span><strong class="card-value">${escapeHtml(String(e.forecast))}</strong></li>
+        <li><span class="card-label">${window.t("actual")}</span><strong class="card-value">${escapeHtml(String(e.actual ?? "—"))}</strong></li>
+        <li><span class="card-label">${window.t("previous")}</span><strong class="card-value">${escapeHtml(String(e.previous))}</strong></li>
+      </ul>`
+      : "";
 
     window.CycleUI.openModal(`
       <div class="sheet-head"><h2 class="card-title">${escapeHtml(title)}</h2><button type="button" class="icon-btn" data-close>×</button></div>
       <p class="event-line"><span class="card-date">${time}</span> · <span class="card-label">${tag}</span></p>
-      <ul class="kv">
-        <li><span class="card-label">${window.t("forecast")}</span><strong class="card-value">${escapeHtml(String(e.forecast))}</strong></li>
-        <li><span class="card-label">${window.t("actual")}</span><strong class="card-value">${escapeHtml(String(e.actual ?? "—"))}</strong></li>
-        <li><span class="card-label">${window.t("previous")}</span><strong class="card-value">${escapeHtml(String(e.previous))}</strong></li>
-      </ul>
+      ${kv}
       <button type="button" class="btn" id="subEvent">${window.t("subscribe")}</button>
-      <div class="ai-host" id="aiEventHost"></div>
     `);
     document.getElementById("subEvent").addEventListener("click", () => {
       downloadIcs(e);
     });
-    window.CycleAIUI.mount(document.getElementById("aiEventHost"), "event", {
-      title,
-      forecast: e.forecast,
-      actual: e.actual,
-      previous: e.previous,
-    });
   }
 
   function eventRow(e) {
-    const time = new Date(e.datetime).toLocaleTimeString(locale(), {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-    const title = trTitle(e.title);
+    const time = window.CycleTZ.formatTime(e.datetime);
+    const title = trTitle(e.title, e);
+    const nums = isDataEvent(e)
+      ? `<span class="cal-nums card-content">${window.t("forecast")} ${escapeHtml(
+          String(e.forecast)
+        )} · ${window.t("actual")} ${escapeHtml(String(e.actual ?? "—"))}</span>`
+      : "";
     return `<div class="cal-item" data-id="${encodeURIComponent(e.id)}">
       <div class="cal-item-main">
         <span class="cal-time card-date">${time}</span>
         <span class="cal-title card-title">${escapeHtml(title)}</span>
-        <span class="cal-nums card-content">${window.t("forecast")} ${escapeHtml(String(e.forecast))} · ${window.t("actual")} ${escapeHtml(String(e.actual ?? "—"))}</span>
+        ${nums}
       </div>
       <button type="button" class="btn tiny sub-btn" data-sub="${encodeURIComponent(e.id)}">${window.t("subscribe")}</button>
     </div>`;
@@ -159,10 +181,13 @@ window.CyclePages.calendar = (function () {
           `<button type="button" class="dp-cell ${isToday ? "is-today" : ""} ${isSelected ? "is-selected" : ""}" data-pick="${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}">${d}</button>`
         );
       }
+      const lang = window.CycleState.lang;
       const weekdays =
-        window.CycleState.lang === "zh"
-          ? ["一", "二", "三", "四", "五", "六", "日"]
-          : ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+        lang === "en"
+          ? ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+          : lang === "zh-TW"
+            ? ["一", "二", "三", "四", "五", "六", "日"]
+            : ["一", "二", "三", "四", "五", "六", "日"];
       return `
         <div class="sheet-head"><h2 class="card-title">${window.t("pickDate")}</h2><button type="button" class="icon-btn" data-close>×</button></div>
         <div class="date-picker in-modal">
@@ -235,7 +260,7 @@ window.CyclePages.calendar = (function () {
         from = mondayOf(cursor);
         to = addDays(from, 7);
         heading =
-          formatHeading(from).slice(0, 10) + " – " + formatHeading(addDays(to, -1)).slice(0, 10);
+          formatHeading(from).slice(0, 10) + " — " + formatHeading(addDays(to, -1)).slice(0, 10);
       }
 
       const cacheKey =
@@ -243,7 +268,9 @@ window.CyclePages.calendar = (function () {
         "|" +
         from.toISOString().slice(0, 10) +
         "|" +
-        window.CycleState.country;
+        window.CycleState.country +
+        "|" +
+        window.CycleState.lang;
 
       root.innerHTML = `
         <section class="panel">
@@ -282,7 +309,7 @@ window.CyclePages.calendar = (function () {
 
         if (window.CycleState.country === "US") {
           window.CycleAPI.witchingDates(cursor.getFullYear()).forEach((d) => {
-            const dt = new Date(d + "T18:00:00Z");
+            const dt = new Date(d + "T13:00:00");
             if (dt >= from && dt < to) {
               events.push({
                 id: "witch-" + d,
@@ -321,13 +348,10 @@ window.CyclePages.calendar = (function () {
                       (e) =>
                         `<button type="button" class="w-item" data-id="${encodeURIComponent(
                           e.id
-                        )}"><span class="card-date">${new Date(
+                        )}"><span class="card-date">${window.CycleTZ.formatTime(
                           e.datetime
-                        ).toLocaleTimeString(locale(), {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}</span> <span class="card-title">${escapeHtml(
-                          trTitle(e.title)
+                        )}</span> <span class="card-title">${escapeHtml(
+                          trTitle(e.title, e)
                         )}</span></button>`
                     )
                     .join("")
