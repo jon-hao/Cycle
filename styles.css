@@ -470,6 +470,29 @@ button,
   margin-bottom: 14px;
 }
 
+.k-model-select {
+  min-width: 108px;
+  max-width: 140px;
+  flex-shrink: 0;
+  z-index: 5;
+}
+
+.k-model-select .sq-select-btn {
+  padding: 6px 10px;
+  font-size: 0.78rem;
+}
+
+.k-model-note {
+  margin: 4px 2px 0;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+.k-panel .panel-head {
+  flex-wrap: nowrap;
+}
+
 .panel-head {
   display: flex;
   align-items: center;

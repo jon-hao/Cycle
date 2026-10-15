@@ -235,11 +235,243 @@ window.CycleKondratiev = (function () {
     };
   }
 
+  function clamp(v, lo, hi) {
+    return Math.max(lo, Math.min(hi, v));
+  }
+
+  function seriesDelta(history, lag) {
+    if (!history || history.length < lag + 1) return null;
+    const cur = history[history.length - 1].v;
+    const prev = history[history.length - 1 - lag].v;
+    if (cur == null || prev == null) return null;
+    return cur - prev;
+  }
+
+  /**
+   * 用宏观指标估计「增长脉冲」与「通胀压力」∈[-1,1]
+   * growth↑ + inflation↓ → 复苏；双升 → 繁荣；growth↓ inflation↑ → 滞胀；双降 → 萧条
+   */
+  function macroScores(macro, fg) {
+    const cpi = macro && macro.cpiYoY != null ? Number(macro.cpiYoY) : null;
+    const infl =
+      macro && macro.inflation != null ? Number(macro.inflation) : cpi;
+    const ppi = macro && macro.ppiYoY != null ? Number(macro.ppiYoY) : null;
+    const rate =
+      macro && macro.policyRate != null ? Number(macro.policyRate) : null;
+    const fgVal = fg && fg.value != null ? Number(fg.value) : null;
+
+    const cpiMom = seriesDelta(macro && macro.cpiHistory, 1);
+    const cpiYoyDelta = seriesDelta(macro && macro.cpiHistory, 12);
+    const rateMom = seriesDelta(macro && macro.rateHistory, 1);
+    const rateYoyDelta = seriesDelta(macro && macro.rateHistory, 12);
+    const ppiMom = seriesDelta(macro && macro.ppiHistory, 1);
+
+    // 通胀：相对 2% 目标 + 变化方向
+    let inflationScore = 0;
+    let inflN = 0;
+    if (infl != null && !Number.isNaN(infl)) {
+      inflationScore += clamp((infl - 2) / 3, -1, 1);
+      inflN += 1;
+    }
+    if (cpiMom != null) {
+      inflationScore += clamp(cpiMom / 0.4, -1, 1);
+      inflN += 1;
+    }
+    if (cpiYoyDelta != null) {
+      inflationScore += clamp(cpiYoyDelta / 1.2, -1, 1);
+      inflN += 1;
+    }
+    if (ppi != null && infl != null) {
+      inflationScore += clamp((ppi - infl) / 3, -1, 1) * 0.5;
+      inflN += 0.5;
+    }
+    if (ppiMom != null) {
+      inflationScore += clamp(ppiMom / 0.5, -1, 1) * 0.5;
+      inflN += 0.5;
+    }
+    inflationScore = inflN ? clamp(inflationScore / inflN, -1, 1) : 0;
+
+    // 增长/风险偏好：恐贪、降息、实际利率放松
+    let growthScore = 0;
+    let gN = 0;
+    if (fgVal != null && !Number.isNaN(fgVal)) {
+      growthScore += clamp((fgVal - 50) / 35, -1, 1);
+      gN += 1.2;
+    }
+    if (rateMom != null) {
+      growthScore += clamp(-rateMom / 0.35, -1, 1);
+      gN += 1;
+    }
+    if (rateYoyDelta != null) {
+      growthScore += clamp(-rateYoyDelta / 1.5, -1, 1) * 0.8;
+      gN += 0.8;
+    }
+    if (rate != null && infl != null) {
+      const real = rate - infl;
+      growthScore += clamp(-real / 2.5, -1, 1) * 0.7;
+      gN += 0.7;
+    }
+    // 无恐贪时（如中国），用 PPI 相对 CPI 的改善作弱代理
+    if (gN < 0.5 && ppiMom != null && cpiMom != null) {
+      growthScore += clamp((cpiMom - ppiMom) / 0.5, -1, 1);
+      gN += 1;
+    }
+    growthScore = gN ? clamp(growthScore / gN, -1, 1) : 0;
+
+    return {
+      growthScore,
+      inflationScore,
+      inputs: {
+        cpi: infl,
+        ppi,
+        rate,
+        fg: fgVal,
+        cpiMom,
+        rateMom,
+      },
+    };
+  }
+
+  function phaseFromScores(growthScore, inflationScore) {
+    if (growthScore >= 0 && inflationScore < 0) return "spring";
+    if (growthScore >= 0 && inflationScore >= 0) return "summer";
+    if (growthScore < 0 && inflationScore >= 0) return "autumn";
+    return "winter";
+  }
+
+  function progressFromPhaseLocal(phaseKey, local) {
+    const phase = PHASES.find((p) => p.key === phaseKey) || PHASES[0];
+    return phase.start + clamp01(local) * (phase.end - phase.start);
+  }
+
+  /** 实时模型：宏观指标驱动阶段；长波主题仍用日历波次作叙事标签 */
+  function waveAtRealtime(macro, fg, country) {
+    const code =
+      country || (window.CycleState && window.CycleState.country) || "US";
+    const base = waveAt(new Date(), code);
+    const scores = macroScores(macro, fg);
+    const phaseKey = phaseFromScores(scores.growthScore, scores.inflationScore);
+    const local = clamp01(
+      (Math.abs(scores.growthScore) + Math.abs(scores.inflationScore)) / 2
+    );
+    const progress = progressFromPhaseLocal(phaseKey, local);
+    const pos = posOnDial(phaseKey, local);
+
+    // 下一拍：略向顺时针下一象限推一点，表示倾向
+    const i = PHASE_ORDER.indexOf(phaseKey);
+    const nextKey = PHASE_ORDER[(i + 1) % 4];
+    const blend = 0.08 + local * 0.12;
+    const nextPos = posOnDial(nextKey, blend);
+
+    return {
+      wave: base.wave,
+      progress,
+      phaseKey,
+      local,
+      x: pos.x,
+      y: pos.y,
+      dx: nextPos.x - pos.x,
+      dy: nextPos.y - pos.y,
+      year: base.year,
+      modelYear: base.modelYear,
+      level: levelFromProgress(progress),
+      slope: slopeFromProgress(progress),
+      country: code,
+      theme: base.theme,
+      mode: "realtime",
+      scores,
+    };
+  }
+
+  function resolveModel(mode, country, macro, fg) {
+    if (mode === "realtime") return waveAtRealtime(macro, fg, country);
+    const m = waveAt(new Date(), country);
+    m.mode = "schematic";
+    return m;
+  }
+
+  /**
+   * 实时模型曲线：用历史 CPI/利率序列逐步估计阶段高度
+   * （恐贪只用于最新点，历史用宏观近似）
+   */
+  function realtimeSeries(macro, fg, country) {
+    const code =
+      country || (window.CycleState && window.CycleState.country) || "US";
+    const cpiH = (macro && macro.cpiHistory) || [];
+    const rateH = (macro && macro.rateHistory) || [];
+    const ppiH = (macro && macro.ppiHistory) || [];
+    if (cpiH.length < 6 && rateH.length < 6) {
+      const now = waveAtRealtime(macro, fg, code);
+      return [{ d: String(Math.round(now.year)), v: now.level }];
+    }
+
+    const byDate = new Map();
+    cpiH.forEach((p) => {
+      byDate.set(p.d, Object.assign(byDate.get(p.d) || { d: p.d }, { cpi: p.v }));
+    });
+    rateH.forEach((p) => {
+      const row = byDate.get(p.d) || { d: p.d };
+      row.rate = p.v;
+      byDate.set(p.d, row);
+    });
+    ppiH.forEach((p) => {
+      const row = byDate.get(p.d) || { d: p.d };
+      row.ppi = p.v;
+      byDate.set(p.d, row);
+    });
+
+    const rows = [...byDate.values()].sort((a, b) =>
+      String(a.d).localeCompare(String(b.d))
+    );
+    const pts = [];
+    for (let i = 0; i < rows.length; i++) {
+      const sliceCpi = rows
+        .slice(0, i + 1)
+        .filter((r) => r.cpi != null)
+        .map((r) => ({ d: r.d, v: r.cpi }));
+      const sliceRate = rows
+        .slice(0, i + 1)
+        .filter((r) => r.rate != null)
+        .map((r) => ({ d: r.d, v: r.rate }));
+      const slicePpi = rows
+        .slice(0, i + 1)
+        .filter((r) => r.ppi != null)
+        .map((r) => ({ d: r.d, v: r.ppi }));
+      const snap = {
+        cpiYoY: sliceCpi.length ? sliceCpi[sliceCpi.length - 1].v : null,
+        inflation: sliceCpi.length ? sliceCpi[sliceCpi.length - 1].v : null,
+        policyRate: sliceRate.length ? sliceRate[sliceRate.length - 1].v : null,
+        ppiYoY: slicePpi.length ? slicePpi[slicePpi.length - 1].v : null,
+        cpiHistory: sliceCpi,
+        rateHistory: sliceRate,
+        ppiHistory: slicePpi,
+      };
+      // 仅最后一点带上当前恐贪，避免历史被单一情绪水平污染
+      const fgSnap =
+        i === rows.length - 1 && fg ? fg : null;
+      const m = waveAtRealtime(snap, fgSnap, code);
+      pts.push({ d: rows[i].d, v: m.level });
+    }
+    return pts.length ? pts : null;
+  }
+
+  function seriesForMode(mode, k, macro, fg) {
+    if (mode === "realtime") {
+      return realtimeSeries(macro, fg, k.country);
+    }
+    return longWaveSeries(Math.round(k.year), k.country);
+  }
+
   return {
     WAVES,
     PHASES,
     waveAt,
+    waveAtRealtime,
+    resolveModel,
     longWaveSeries,
+    realtimeSeries,
+    seriesForMode,
+    macroScores,
     shortHeader,
     themeText,
     phaseLabel,

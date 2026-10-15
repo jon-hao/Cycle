@@ -115,10 +115,13 @@ window.CyclePages.data = (function () {
     URL.revokeObjectURL(a.href);
   }
 
-  function openWaveModal(k, aiPayload) {
+  function openWaveModal(k, aiPayload, macro, fg) {
     const country = k.country || window.CycleState.country;
+    const mode = k.mode || window.CycleState.kModel || "schematic";
     const calYear = Math.round(k.year);
-    const series = window.CycleKondratiev.longWaveSeries(calYear, country);
+    const series =
+      window.CycleKondratiev.seriesForMode(mode, k, macro, fg) ||
+      window.CycleKondratiev.longWaveSeries(calYear, country);
     const pill = window.CycleKondratiev.pillText(k);
     const theme =
       k.theme ||
@@ -127,18 +130,33 @@ window.CyclePages.data = (function () {
         country,
         window.CycleState.lang
       );
+    const hint =
+      mode === "realtime"
+        ? window.t("kRealtimeHint")
+        : window.t("kSchematicHint");
+    const scoreLine =
+      mode === "realtime" && k.scores
+        ? `<p class="card-content">growth ${k.scores.growthScore.toFixed(2)} · inflation ${k.scores.inflationScore.toFixed(2)}</p>`
+        : "";
+    const blinkAt =
+      mode === "realtime" && series && series.length
+        ? String(series[series.length - 1].d)
+        : String(calYear);
     window.CycleUI.openModal(`
       <div class="sheet-head"><h2 class="card-title">${window.t("kondratiev")}</h2><button type="button" class="icon-btn" data-close>×</button></div>
-      <p class="card-date"><span class="pill phase-${k.phaseKey}">${pill}</span></p>
+      <p class="card-date"><span class="pill phase-${k.phaseKey}">${pill}</span>
+        <span class="card-label"> · ${mode === "realtime" ? window.t("kModelRealtime") : window.t("kModelSchematic")}</span></p>
       <p class="card-content">${theme} · ${window.t(k.phaseKey + "Desc")}</p>
+      ${scoreLine}
+      <p class="k-model-note">${hint}</p>
       <canvas class="chart" id="waveChart" height="220"></canvas>
       <div class="ai-host" id="aiWaveHost"></div>
     `);
     requestAnimationFrame(() => {
       window.CycleCharts.lineChart(document.getElementById("waveChart"), series, {
         color: (window.CyclePhaseColor && window.CyclePhaseColor[k.phaseKey]) || "#0f6e56",
-        blinkAt: String(calYear),
-        xUnit: window.CycleState.lang === "en" ? "Year" : "年",
+        blinkAt,
+        xUnit: window.CycleState.lang === "en" ? "Time" : "时间",
         yUnit: "",
         xTicks: 6,
       });
@@ -150,6 +168,7 @@ window.CyclePages.data = (function () {
             waveId: k.wave.id,
             phase: window.CycleKondratiev.phaseLabel(k.phaseKey),
             progress: (k.progress * 100).toFixed(0),
+            mode,
           },
           aiPayload || {}
         )
@@ -257,11 +276,18 @@ window.CyclePages.data = (function () {
       </section>`;
   }
 
+  function kModelOptions() {
+    return [
+      { value: "schematic", label: window.t("kModelSchematic") },
+      { value: "realtime", label: window.t("kModelRealtime") },
+    ];
+  }
+
   async function render(root, opts) {
     const soft = opts && opts.soft;
     root.innerHTML = skeleton();
     const code = window.CycleState.country;
-    const k = window.CycleKondratiev.waveAt(new Date(), code);
+    const mode = window.CycleState.kModel || "schematic";
 
     let macro;
     let fg;
@@ -276,6 +302,8 @@ window.CyclePages.data = (function () {
       cache = { code, macro, fg };
     }
 
+    const k = window.CycleKondratiev.resolveModel(mode, code, macro, fg);
+
     const next = macro && macro.nextMeeting;
     const rateD = seriesDeltas(macro && macro.rateHistory);
     const inflD = seriesDeltas(macro && macro.inflationHistory);
@@ -284,16 +312,20 @@ window.CyclePages.data = (function () {
 
     const fgVal = fg ? Math.round(fg.value) : null;
     const trend = fg ? fgTrend(fg.history) : 0;
+    const modelHint =
+      mode === "realtime" ? window.t("kRealtimeHint") : window.t("kSchematicHint");
 
     root.innerHTML = `
       <div class="hero-row">
         <section class="panel k-panel" id="kPanel">
           <div class="panel-head">
             <h2 class="card-title">${window.t("kondratiev")}</h2>
+            <div class="sq-select k-model-select" id="kModelSelect" data-value="${mode}"></div>
           </div>
           <button type="button" class="k-hit" id="openWave" aria-label="${window.t("kondratiev")}">
             <svg id="kQuad" class="k-quad"></svg>
           </button>
+          <p class="k-model-note">${modelHint}</p>
         </section>
 
         <section class="metric-card fg-card ${fg ? "" : "is-missing"}" data-metric="fear" role="button" tabindex="0">
@@ -337,6 +369,17 @@ window.CyclePages.data = (function () {
       </section>
     `;
 
+    window.CycleSelect.mount(
+      root.querySelector("#kModelSelect"),
+      kModelOptions(),
+      mode,
+      (v) => {
+        window.CycleState.kModel = v;
+        localStorage.setItem("cycle-k-model", v);
+        render(root, { soft: true });
+      }
+    );
+
     window.CycleCharts.kondratievQuadrant(root.querySelector("#kQuad"), k);
     if (fg) {
       window.CycleCharts.fearGreedGauge(root.querySelector("#fgGauge"), fgVal, trend);
@@ -351,11 +394,13 @@ window.CyclePages.data = (function () {
       cpi: macro && macro.cpiYoY,
       ppi: macro && macro.ppiYoY,
       fearGreed: fg && fg.value,
+      kMode: mode,
       _next: next,
     };
 
-    root.querySelector("#openWave").addEventListener("click", () => {
-      openWaveModal(k, aiPayload);
+    root.querySelector("#openWave").addEventListener("click", (e) => {
+      if (e.target.closest("#kModelSelect")) return;
+      openWaveModal(k, aiPayload, macro, fg);
     });
 
     function openMetric(id) {
