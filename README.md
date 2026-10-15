@@ -28,7 +28,7 @@ localStorage.setItem("cycle-llm", JSON.stringify({ tryRemote: true, model: "llam
 
 并设置 `OLLAMA_ORIGINS=*`。
 
-跨域数据优先走 **JSONP**（如 World Bank `format=jsonP`、rss2json `callback=`），不依赖 CORS。
+跨域数据优先走 **JSONP**（如 World Bank `format=jsonp&prefix=`、rss2json `callback=`），不依赖 CORS。
 
 ## 数据源（实时，无静态假数据）
 
