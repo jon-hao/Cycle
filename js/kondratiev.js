@@ -271,6 +271,7 @@ window.CycleKondratiev = (function () {
     const housing = m.housingYoY != null ? Number(m.housingYoY) : null;
     const credit = m.creditYoY != null ? Number(m.creditYoY) : null;
     const claims = m.claims != null ? Number(m.claims) : null;
+    const pmi = m.pmi != null ? Number(m.pmi) : null;
 
     const cpiMom = seriesDelta(m.cpiHistory, 1);
     const cpiYoyDelta = seriesDelta(m.cpiHistory, 12);
@@ -324,6 +325,11 @@ window.CycleKondratiev = (function () {
     if (payrolls != null && !Number.isNaN(payrolls)) {
       growthScore += clamp(payrolls / 2.5, -1, 1);
       gN += 1.2;
+    }
+    if (pmi != null && !Number.isNaN(pmi)) {
+      // 荣枯线 50；中国无非农时用 PMI 补增长脉冲
+      growthScore += clamp((pmi - 50) / 3, -1, 1);
+      gN += 1.1;
     }
     if (retail != null && !Number.isNaN(retail)) {
       growthScore += clamp(retail / 4, -1, 1);
@@ -475,6 +481,11 @@ window.CycleKondratiev = (function () {
 
   function monthKey(d) {
     const s = String(d || "");
+    const q = s.match(/^(\d{4})-Q([1-4])$/i);
+    if (q) {
+      const mm = { 1: "03", 2: "06", 3: "09", 4: "12" }[q[2]];
+      return `${q[1]}-${mm}`;
+    }
     if (/^\d{4}-\d{2}/.test(s)) return s.slice(0, 7);
     if (/^\d{4}$/.test(s)) return s + "-06";
     return s.slice(0, 7);
@@ -505,6 +516,7 @@ window.CycleKondratiev = (function () {
     put(macro && macro.housingYoYHistory, "housing");
     put(macro && macro.creditYoYHistory, "credit");
     put(macro && macro.claimsHistory, "claims");
+    put(macro && macro.pmiHistory, "pmi");
     return [...by.values()].sort((a, b) => String(a.d).localeCompare(String(b.d)));
   }
 
@@ -542,6 +554,7 @@ window.CycleKondratiev = (function () {
       housing: [],
       credit: [],
       claims: [],
+      pmi: [],
     };
     const MAX = 36;
     const pts = [];
@@ -562,6 +575,7 @@ window.CycleKondratiev = (function () {
       pushRoll(roll.housing, row.d, row.housing, MAX);
       pushRoll(roll.credit, row.d, row.credit, MAX);
       pushRoll(roll.claims, row.d, row.claims, MAX);
+      pushRoll(roll.pmi, row.d, row.pmi, MAX);
 
       const snap = {
         cpiYoY: roll.cpi.length ? roll.cpi[roll.cpi.length - 1].v : null,
@@ -593,6 +607,7 @@ window.CycleKondratiev = (function () {
         claims: roll.claims.length
           ? roll.claims[roll.claims.length - 1].v
           : null,
+        pmi: roll.pmi.length ? roll.pmi[roll.pmi.length - 1].v : null,
         cpiHistory: roll.cpi.slice(),
         coreCpiHistory: roll.core.slice(),
         rateHistory: roll.rate.slice(),
@@ -607,6 +622,7 @@ window.CycleKondratiev = (function () {
         housingYoYHistory: roll.housing.slice(),
         creditYoYHistory: roll.credit.slice(),
         claimsHistory: roll.claims.slice(),
+        pmiHistory: roll.pmi.slice(),
       };
       const fgSnap = i === rows.length - 1 && fg ? fg : null;
       const m = waveAtRealtime(snap, fgSnap, code);

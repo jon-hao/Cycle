@@ -8,6 +8,8 @@ window.CycleAPI = (function () {
   const FC = "https://www.financecalendar.com/wp-json/fc/v1";
   const PA = "https://pipatlas.com/api/calendar";
   const WB = "https://api.worldbank.org/v2";
+  const CD = "https://chinadata.live/api/v2";
+  const EM = "https://datacenter-web.eastmoney.com/api/data/v1/get";
   // 金十 RSS 直连 CORS 非法；经 rss2json JSONP 转发
   const JIN10_RSS = "https://rsshub.rssforever.com/jin10/important";
   const RSS2JSON = "https://api.rss2json.com/v1/api.json?rss_url=";
@@ -103,6 +105,74 @@ window.CycleAPI = (function () {
     return pts && pts.length ? pts[pts.length - 1].v : null;
   }
 
+  /** chinadata.live：无鉴权 + CORS *，中国官方统计镜像 */
+  async function chinaDataSeries(slug, opts) {
+    const o = opts || {};
+    const d = await getJSON(`${CD}/data/${encodeURIComponent(slug)}`, {
+      timeout: 18000,
+    });
+    if (!d || !d.success || !d.data || !Array.isArray(d.data.data)) return null;
+    let pts = d.data.data
+      .map((r) => {
+        if (!r || r.value == null || r.value === "") return null;
+        const v = Number(r.value);
+        if (Number.isNaN(v)) return null;
+        return { d: String(r.date), v };
+      })
+      .filter(Boolean);
+    if (!pts.length) return null;
+    if (o.indexToYoY) {
+      pts = pts.map((p) => ({ d: p.d, v: p.v - 100 }));
+    }
+    pts.sort((a, b) => String(a.d).localeCompare(String(b.d)));
+    if (o.limit) pts = pts.slice(-o.limit);
+    return pts.length ? pts : null;
+  }
+
+  /** 累计同比：同月上年水平 → YoY%（固投/新开工等 YTD 序列） */
+  function yoyFromSameMonth(pts) {
+    if (!pts || pts.length < 13) return null;
+    const map = new Map();
+    pts.forEach((p) => {
+      const d = String(p.d).slice(0, 7);
+      if (/^\d{4}-\d{2}$/.test(d)) map.set(d, p.v);
+    });
+    const out = [];
+    map.forEach((v, d) => {
+      const y = Number(d.slice(0, 4));
+      const m = d.slice(5, 7);
+      const prev = map.get(`${y - 1}-${m}`);
+      if (prev == null || prev === 0) return;
+      out.push({ d, v: ((v - prev) / Math.abs(prev)) * 100 });
+    });
+    out.sort((a, b) => String(a.d).localeCompare(String(b.d)));
+    return out.length ? out : null;
+  }
+
+  /** 东财 LPR（1 年期），CORS *；列表按日期倒序，同月取最新一次 */
+  async function fetchChinaLPR(limit) {
+    const n = limit || 500;
+    const url =
+      `${EM}?reportName=RPTA_WEB_RATE&columns=ALL` +
+      `&sortColumns=TRADE_DATE&sortTypes=-1&pageNumber=1&pageSize=${n}` +
+      `&token=894050c76af8597a853f5b408b759f5d&source=WEB&client=WEB`;
+    const d = await getJSON(url, { timeout: 18000 });
+    const rows = d && d.result && d.result.data;
+    if (!Array.isArray(rows) || !rows.length) return null;
+    const seen = new Map();
+    rows.forEach((r) => {
+      const v = Number(r.LPR1Y);
+      if (Number.isNaN(v) || r.TRADE_DATE == null) return;
+      const mk = String(r.TRADE_DATE).slice(0, 7);
+      if (!/^\d{4}-\d{2}$/.test(mk) || seen.has(mk)) return;
+      seen.set(mk, v);
+    });
+    const pts = [...seen.entries()]
+      .map(([d, v]) => ({ d, v }))
+      .sort((a, b) => String(a.d).localeCompare(String(b.d)));
+    return pts.length ? pts : null;
+  }
+
   /** 美国宏观：利率/物价 + 增长/信用（MacroRadar 公开 CORS） */
   async function fetchUS() {
     const [
@@ -187,26 +257,74 @@ window.CycleAPI = (function () {
     };
   }
 
-  /** 中国：World Bank 年通胀；利率/月度 PPI 无稳定 CORS 则缺失 */
+  /** 中国宏观：chinadata 月度增长/物价 + 东财 LPR（均 CORS *） */
   async function fetchCN() {
-    const inflation = await wbInflation("CHN");
+    const [
+      rate,
+      cpiIdx,
+      ppi,
+      unrate,
+      indpro,
+      retail,
+      m2,
+      gdpIdx,
+      housingLvl,
+      credit,
+      pmi,
+    ] = await Promise.all([
+      fetchChinaLPR(500),
+      chinaDataSeries("china-cpi-index-yoy", { indexToYoY: true, limit: 480 }),
+      chinaDataSeries("china-ppi", { limit: 480 }),
+      chinaDataSeries("china-unemployment", { limit: 480 }),
+      chinaDataSeries("china-industrial-output", { limit: 480 }),
+      chinaDataSeries("china-retail-sales-yoy", { limit: 480 }),
+      chinaDataSeries("china-m2-money-supply-yoy", { limit: 480 }),
+      chinaDataSeries("china-gdp-index", { indexToYoY: true, limit: 160 }),
+      chinaDataSeries("china-housing-starts", { limit: 480 }),
+      chinaDataSeries("china-rmb-loans-balance-yoy", { limit: 480 }),
+      chinaDataSeries("china-pmi", { limit: 480 }),
+    ]);
+    const cpi = cpiIdx;
+    const inflation = cpi;
+    const housing = yoyFromSameMonth(housingLvl);
+    const gdp = gdpIdx;
     return {
       country: "CN",
-      rateHistory: null,
-      policyRate: null,
-      cpiHistory: inflation,
-      cpiYoY: last(inflation),
-      ppiHistory: null,
-      ppiYoY: null,
+      rateHistory: rate,
+      policyRate: last(rate),
+      cpiHistory: cpi,
+      cpiYoY: last(cpi),
+      ppiHistory: ppi,
+      ppiYoY: last(ppi),
+      coreCpiHistory: null,
+      coreCpiYoY: null,
       inflationHistory: inflation,
       inflation: last(inflation),
+      unrateHistory: unrate,
+      unrate: last(unrate),
+      payrollsYoYHistory: null,
+      payrollsYoY: null,
+      indproYoYHistory: indpro,
+      indproYoY: last(indpro),
+      retailYoYHistory: retail,
+      retailYoY: last(retail),
+      yieldCurveHistory: null,
+      yieldCurve: null,
+      m2YoYHistory: m2,
+      m2YoY: last(m2),
+      gdpYoYHistory: gdp,
+      gdpYoY: last(gdp),
+      housingYoYHistory: housing,
+      housingYoY: last(housing),
+      creditYoYHistory: credit,
+      creditYoY: last(credit),
+      claimsHistory: null,
+      claims: null,
+      pmiHistory: pmi,
+      pmi: last(pmi),
       nextMeeting: null,
       dotPlot: null,
-      source: "World Bank FP.CPI.TOTL.ZG",
-      notes: {
-        zh: "中国月度 LPR/PPI 暂无稳定浏览器端公开接口，显示缺失；通胀取世界银行年度 CPI。",
-        en: "No stable browser CORS feed for China monthly LPR/PPI; those show missing. Inflation from World Bank annual CPI.",
-      },
+      source: "ChinaData / Eastmoney LPR",
     };
   }
 

@@ -390,8 +390,10 @@ window.CyclePages.data = (function () {
         }
       </section>
       ${
-        code === "US"
-          ? `<h3 class="section-label card-label">${window.t("usExtras")}</h3>
+        code === "US" || code === "CN"
+          ? `<h3 class="section-label card-label">${window.t(
+              code === "CN" ? "cnExtras" : "usExtras"
+            )}</h3>
       <section class="metrics metrics-grid">
         ${metricCard(
           "unrate",
@@ -399,14 +401,23 @@ window.CyclePages.data = (function () {
           macro && macro.unrate != null ? fmt(macro.unrate, 1) + "%" : window.t("missing"),
           deltaHtml(seriesDeltas(macro && macro.unrateHistory))
         )}
-        ${metricCard(
-          "payrolls",
-          window.t("payrolls"),
-          macro && macro.payrollsYoY != null
-            ? fmt(macro.payrollsYoY, 1) + "%"
-            : window.t("missing"),
-          deltaHtml(seriesDeltas(macro && macro.payrollsYoYHistory))
-        )}
+        ${
+          code === "US"
+            ? metricCard(
+                "payrolls",
+                window.t("payrolls"),
+                macro && macro.payrollsYoY != null
+                  ? fmt(macro.payrollsYoY, 1) + "%"
+                  : window.t("missing"),
+                deltaHtml(seriesDeltas(macro && macro.payrollsYoYHistory))
+              )
+            : metricCard(
+                "pmi",
+                window.t("pmi"),
+                macro && macro.pmi != null ? fmt(macro.pmi, 1) : window.t("missing"),
+                deltaHtml(seriesDeltas(macro && macro.pmiHistory))
+              )
+        }
         ${metricCard(
           "indpro",
           window.t("indpro"),
@@ -429,14 +440,18 @@ window.CyclePages.data = (function () {
           macro && macro.gdpYoY != null ? fmt(macro.gdpYoY, 1) + "%" : window.t("missing"),
           deltaHtml(seriesDeltas(macro && macro.gdpYoYHistory))
         )}
-        ${metricCard(
-          "yieldCurve",
-          window.t("yieldCurve"),
-          macro && macro.yieldCurve != null
-            ? fmt(macro.yieldCurve, 2) + "%"
-            : window.t("missing"),
-          deltaHtml(seriesDeltas(macro && macro.yieldCurveHistory))
-        )}
+        ${
+          code === "US"
+            ? metricCard(
+                "yieldCurve",
+                window.t("yieldCurve"),
+                macro && macro.yieldCurve != null
+                  ? fmt(macro.yieldCurve, 2) + "%"
+                  : window.t("missing"),
+                deltaHtml(seriesDeltas(macro && macro.yieldCurveHistory))
+              )
+            : ""
+        }
         ${metricCard(
           "m2",
           window.t("m2"),
@@ -445,7 +460,7 @@ window.CyclePages.data = (function () {
         )}
         ${metricCard(
           "credit",
-          window.t("credit"),
+          window.t(code === "CN" ? "creditCN" : "credit"),
           macro && macro.creditYoY != null
             ? fmt(macro.creditYoY, 1) + "%"
             : window.t("missing"),
@@ -453,20 +468,24 @@ window.CyclePages.data = (function () {
         )}
         ${metricCard(
           "housing",
-          window.t("housing"),
+          window.t(code === "CN" ? "housingCN" : "housing"),
           macro && macro.housingYoY != null
             ? fmt(macro.housingYoY, 1) + "%"
             : window.t("missing"),
           deltaHtml(seriesDeltas(macro && macro.housingYoYHistory))
         )}
-        ${metricCard(
-          "claims",
-          window.t("claims"),
-          macro && macro.claims != null
-            ? Math.round(macro.claims).toLocaleString()
-            : window.t("missing"),
-          deltaHtml(seriesDeltas(macro && macro.claimsHistory))
-        )}
+        ${
+          code === "US"
+            ? metricCard(
+                "claims",
+                window.t("claims"),
+                macro && macro.claims != null
+                  ? Math.round(macro.claims).toLocaleString()
+                  : window.t("missing"),
+                deltaHtml(seriesDeltas(macro && macro.claimsHistory))
+              )
+            : ""
+        }
       </section>`
           : ""
       }
@@ -592,7 +611,7 @@ window.CyclePages.data = (function () {
         opts: { yUnit: "%" },
       },
       housing: {
-        title: window.t("housing"),
+        title: window.t(code === "CN" ? "housingCN" : "housing"),
         series: macro && macro.housingYoYHistory,
         extra: "",
         opts: { yUnit: "%" },
@@ -603,7 +622,21 @@ window.CyclePages.data = (function () {
         extra: "",
         opts: { yUnit: "" },
       },
+      pmi: {
+        title: window.t("pmi"),
+        series: macro && macro.pmiHistory,
+        extra: "",
+        opts: { yUnit: "" },
+      },
     };
+    if (code === "CN") {
+      seriesMap.credit = {
+        title: window.t("creditCN"),
+        series: macro && macro.creditYoYHistory,
+        extra: "",
+        opts: { yUnit: "%" },
+      };
+    }
 
     function openMetric(id) {
       if (id === "fear") {
