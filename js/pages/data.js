@@ -219,6 +219,7 @@ window.CyclePages.data = (function () {
           xUnit: window.CycleState.lang === "en" ? "Time" : "时间",
           yUnit: "",
           xTicks: mode === "realtime" ? 7 : 6,
+          zeroLine: true,
         });
       }
 
