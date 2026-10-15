@@ -1,4 +1,4 @@
-/** 经济日历事件标题：中英合理互译（模式匹配，不硬塞生硬直译） */
+/** 经济日历事件标题：中英合理互译（细粒度优先，避免 CPI 各口径被压成同一条） */
 window.CycleCalI18n = (function () {
   const RULES = [
     {
@@ -26,15 +26,56 @@ window.CycleCalI18n = (function () {
       zh: "初请失业金人数",
       en: "Initial Jobless Claims",
     },
+    // CPI / PPI：先匹配 Core + YoY/MoM，再匹配笼统项
+    {
+      re: /Core\s*CPI.*(Y\/?Y|YoY|Year)|核心\s*CPI.*同比/i,
+      zh: "核心 CPI（同比）",
+      en: "Core CPI (YoY)",
+    },
+    {
+      re: /Core\s*CPI.*(M\/?M|MoM|Month)|核心\s*CPI.*环比/i,
+      zh: "核心 CPI（环比）",
+      en: "Core CPI (MoM)",
+    },
+    {
+      re: /Core\s*CPI|核心\s*CPI|核心消费/i,
+      zh: "核心 CPI",
+      en: "Core CPI",
+    },
+    {
+      re: /CPI.*(Y\/?Y|YoY|Year)|Consumer\s*Price.*(Y\/?Y|YoY)|CPI.*同比|居民消费价格.*同比/i,
+      zh: "消费者物价指数 CPI（同比）",
+      en: "CPI (YoY)",
+    },
+    {
+      re: /CPI.*(M\/?M|MoM|Month)|Consumer\s*Price.*(M\/?M|MoM)|CPI.*环比|居民消费价格.*环比/i,
+      zh: "消费者物价指数 CPI（环比）",
+      en: "CPI (MoM)",
+    },
     {
       re: /CPI|Consumer\s*Price\s*Index|消费者物价|居民消费价格/i,
       zh: "消费者物价指数（CPI）",
       en: "Consumer Price Index (CPI)",
     },
     {
-      re: /Core\s*CPI|核心\s*CPI|核心消费/i,
-      zh: "核心 CPI",
-      en: "Core CPI",
+      re: /Core\s*PPI.*(Y\/?Y|YoY)|核心\s*PPI.*同比/i,
+      zh: "核心 PPI（同比）",
+      en: "Core PPI (YoY)",
+    },
+    {
+      re: /Core\s*PPI.*(M\/?M|MoM)|核心\s*PPI.*环比/i,
+      zh: "核心 PPI（环比）",
+      en: "Core PPI (MoM)",
+    },
+    {
+      re: /PPI.*(Y\/?Y|YoY)|Producer\s*Price.*(Y\/?Y|YoY)|PPI.*同比/i,
+      zh: "生产者物价指数 PPI（同比）",
+      en: "PPI (YoY)",
+    },
+    {
+      re: /PPI.*(M\/?M|MoM)|Producer\s*Price.*(M\/?M|MoM)|PPI.*环比/i,
+      zh: "生产者物价指数 PPI（环比）",
+      en: "PPI (MoM)",
     },
     {
       re: /PPI|Producer\s*Price\s*Index|生产者物价|工业生产者/i,
@@ -132,7 +173,12 @@ window.CycleCalI18n = (function () {
       en: "Loan Prime Rate (LPR)",
     },
     {
-      re: /PBOC|People'?s\s*Bank\s*of\s*China|中国人民银行|央行/i,
+      re: /Labour\s*Force|Labor\s*Force|就业人口|劳动力/i,
+      zh: "劳动力调查",
+      en: "Labour Force",
+    },
+    {
+      re: /PBOC|People'?s\s*Bank\s*of\s*China|中国人民银行/i,
       zh: "中国人民银行相关数据",
       en: "PBOC-related Release",
     },
@@ -146,16 +192,6 @@ window.CycleCalI18n = (function () {
       zh: "四巫日",
       en: "Quadruple Witching",
     },
-    {
-      re: /Thanksgiving/i,
-      zh: "感恩节（休市）",
-      en: "Thanksgiving (Holiday)",
-    },
-    {
-      re: /Christmas|Independence\s*Day|Memorial\s*Day|Labor\s*Day|New\s*Year/i,
-      zh: null, // keep English holiday name for known US holidays; handled below
-      en: null,
-    },
   ];
 
   const HOLIDAY_ZH = {
@@ -164,7 +200,7 @@ window.CycleCalI18n = (function () {
     "Presidents' Day": "总统日（休市）",
     "Good Friday": "耶稣受难日（休市）",
     "Memorial Day": "阵亡将士纪念日（休市）",
-    "Juneteenth": "六月节（休市）",
+    Juneteenth: "六月节（休市）",
     "Independence Day": "独立日（休市）",
     "Labor Day": "劳工节（休市）",
     "Columbus Day": "哥伦布日（休市）",
@@ -172,6 +208,29 @@ window.CycleCalI18n = (function () {
     Christmas: "圣诞节（休市）",
     "Christmas Day": "圣诞节（休市）",
   };
+
+  /** 用于去重的规范化键（同比/环比/核心 分开） */
+  function dedupeKey(title) {
+    const t = String(title || "");
+    const lower = t.toLowerCase();
+    let kind = "other";
+    if (/core\s*cpi|核心\s*cpi/i.test(t)) kind = "core_cpi";
+    else if (/cpi|consumer\s*price|消费者物价|居民消费/i.test(t)) kind = "cpi";
+    else if (/core\s*ppi|核心\s*ppi/i.test(t)) kind = "core_ppi";
+    else if (/ppi|producer\s*price|生产者物价/i.test(t)) kind = "ppi";
+    else if (/non[- ]?farm|nfp|非农/i.test(t)) kind = "nfp";
+    else if (/fomc|fed.*decision|美联储.*议息/i.test(t)) kind = "fomc";
+    else if (/unemployment|失业/i.test(t)) kind = "unemp";
+    else if (/gdp/i.test(t)) kind = "gdp";
+    else kind = lower.replace(/[^a-z0-9\u4e00-\u9fff]+/g, " ").trim().slice(0, 40);
+
+    let period = "";
+    if (/y\/?y|yoy|year|同比/i.test(t)) period = "yoy";
+    else if (/m\/?m|mom|month|环比/i.test(t)) period = "mom";
+    else if (/q\/?q|qoq|季/i.test(t)) period = "qoq";
+
+    return kind + "|" + period;
+  }
 
   function translateTitle(raw, lang) {
     const title = String(raw || "").trim();
@@ -189,12 +248,11 @@ window.CycleCalI18n = (function () {
       if (out) return out;
     }
 
-    // 已是目标语言为主则原样返回
     const hasCJK = /[\u4e00-\u9fff]/.test(title);
     if (lang === "zh" && hasCJK) return title;
     if (lang === "en" && !hasCJK) return title;
     return title;
   }
 
-  return { translateTitle };
+  return { translateTitle, dedupeKey };
 })();

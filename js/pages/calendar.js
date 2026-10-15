@@ -1,8 +1,10 @@
 window.CyclePages = window.CyclePages || {};
 
 window.CyclePages.calendar = (function () {
-  let view = "week";
-  let cursor = new Date();
+  let view = "day";
+  let cursor = startOfDay(new Date());
+  let pickerOpen = false;
+  let pickerCursor = new Date();
 
   function startOfDay(d) {
     const x = new Date(d);
@@ -26,6 +28,11 @@ window.CyclePages.calendar = (function () {
   }
   function trTitle(title) {
     return window.CycleCalI18n.translateTitle(title, window.CycleState.lang);
+  }
+  function mondayOf(d) {
+    const day = d.getDay();
+    const offset = day === 0 ? -6 : 1 - day;
+    return startOfDay(addDays(d, offset));
   }
 
   function icsForEvent(e) {
@@ -60,6 +67,13 @@ window.CyclePages.calendar = (function () {
     a.download = "cycle-event.ics";
     a.click();
     URL.revokeObjectURL(a.href);
+  }
+
+  function escapeHtml(s) {
+    return String(s || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
   }
 
   async function openEvent(e) {
@@ -100,13 +114,6 @@ window.CyclePages.calendar = (function () {
     });
   }
 
-  function escapeHtml(s) {
-    return String(s || "")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;");
-  }
-
   function eventRow(e) {
     const time = new Date(e.datetime).toLocaleTimeString(locale(), {
       hour: "2-digit",
@@ -121,6 +128,58 @@ window.CyclePages.calendar = (function () {
       </div>
       <button type="button" class="btn tiny sub-btn" data-sub="${encodeURIComponent(e.id)}">${window.t("subscribe")}</button>
     </div>`;
+  }
+
+  function pickerHtml() {
+    const y = pickerCursor.getFullYear();
+    const m = pickerCursor.getMonth();
+    const first = new Date(y, m, 1);
+    const startPad = (first.getDay() + 6) % 7; // Monday-first
+    const daysInMonth = new Date(y, m + 1, 0).getDate();
+    const monthLabel = pickerCursor.toLocaleDateString(locale(), {
+      year: "numeric",
+      month: "long",
+    });
+
+    const cells = [];
+    for (let i = 0; i < startPad; i++) cells.push(`<div class="dp-cell empty"></div>`);
+    for (let d = 1; d <= daysInMonth; d++) {
+      const date = new Date(y, m, d);
+      const isToday = sameDay(date, new Date());
+      const isSelected =
+        view === "day"
+          ? sameDay(date, cursor)
+          : date >= mondayOf(cursor) && date < addDays(mondayOf(cursor), 7);
+      cells.push(
+        `<button type="button" class="dp-cell ${isToday ? "is-today" : ""} ${isSelected ? "is-selected" : ""}" data-pick="${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}">${d}</button>`
+      );
+    }
+
+    const weekHint =
+      view === "week"
+        ? `<p class="dp-hint card-content">${window.t("pickWeekHint")}</p>`
+        : `<p class="dp-hint card-content">${window.t("pickDayHint")}</p>`;
+
+    return `
+      <div class="date-picker" id="datePicker">
+        <div class="dp-head">
+          <button type="button" class="icon-btn" id="dpPrevY" title="year">«</button>
+          <button type="button" class="icon-btn" id="dpPrevM">‹</button>
+          <strong class="card-title">${monthLabel}</strong>
+          <button type="button" class="icon-btn" id="dpNextM">›</button>
+          <button type="button" class="icon-btn" id="dpNextY">»</button>
+        </div>
+        <div class="dp-weekdays">
+          ${["一", "二", "三", "四", "五", "六", "日"]
+            .map((w, i) => {
+              const en = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][i];
+              return `<span>${window.CycleState.lang === "zh" ? w : en}</span>`;
+            })
+            .join("")}
+        </div>
+        <div class="dp-grid">${cells.join("")}</div>
+        ${weekHint}
+      </div>`;
   }
 
   async function render(root) {
@@ -140,9 +199,7 @@ window.CyclePages.calendar = (function () {
           weekday: "short",
         });
       } else {
-        const day = cursor.getDay();
-        const mondayOffset = day === 0 ? -6 : 1 - day;
-        from = startOfDay(addDays(cursor, mondayOffset));
+        from = mondayOf(cursor);
         to = addDays(from, 7);
         heading =
           from.toLocaleDateString(locale(), { month: "short", day: "numeric" }) +
@@ -175,6 +232,7 @@ window.CyclePages.calendar = (function () {
               previous: "—",
               importance: 3,
               tag: "witching",
+              source: "local",
             });
           }
         });
@@ -234,11 +292,12 @@ window.CyclePages.calendar = (function () {
             </div>
             <div class="cal-nav">
               <button type="button" class="icon-btn" id="prev">‹</button>
-              <strong class="card-title">${heading}</strong>
+              <button type="button" class="cal-heading card-title" id="openPicker">${heading}</button>
               <button type="button" class="icon-btn" id="next">›</button>
-              <button type="button" class="btn tiny" id="todayBtn">${window.t("today")}</button>
+              <button type="button" class="btn tiny today-btn" id="todayBtn">${window.t("today")}</button>
             </div>
           </div>
+          ${pickerOpen ? pickerHtml() : ""}
           ${body}
         </section>
       `;
@@ -246,6 +305,7 @@ window.CyclePages.calendar = (function () {
       root.querySelectorAll("[data-view]").forEach((b) => {
         b.addEventListener("click", () => {
           view = b.dataset.view;
+          pickerOpen = false;
           paint();
         });
       });
@@ -258,9 +318,59 @@ window.CyclePages.calendar = (function () {
         paint();
       });
       root.querySelector("#todayBtn").addEventListener("click", () => {
-        cursor = new Date();
+        cursor = startOfDay(new Date());
+        pickerOpen = false;
         paint();
       });
+      root.querySelector("#openPicker").addEventListener("click", () => {
+        pickerOpen = !pickerOpen;
+        pickerCursor = new Date(cursor);
+        paint();
+      });
+
+      if (pickerOpen) {
+        root.querySelector("#dpPrevM").addEventListener("click", () => {
+          pickerCursor = new Date(
+            pickerCursor.getFullYear(),
+            pickerCursor.getMonth() - 1,
+            1
+          );
+          paint();
+        });
+        root.querySelector("#dpNextM").addEventListener("click", () => {
+          pickerCursor = new Date(
+            pickerCursor.getFullYear(),
+            pickerCursor.getMonth() + 1,
+            1
+          );
+          paint();
+        });
+        root.querySelector("#dpPrevY").addEventListener("click", () => {
+          pickerCursor = new Date(
+            pickerCursor.getFullYear() - 1,
+            pickerCursor.getMonth(),
+            1
+          );
+          paint();
+        });
+        root.querySelector("#dpNextY").addEventListener("click", () => {
+          pickerCursor = new Date(
+            pickerCursor.getFullYear() + 1,
+            pickerCursor.getMonth(),
+            1
+          );
+          paint();
+        });
+        root.querySelectorAll("[data-pick]").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            const [yy, mm, dd] = btn.dataset.pick.split("-").map(Number);
+            cursor = startOfDay(new Date(yy, mm - 1, dd));
+            pickerOpen = false;
+            paint();
+          });
+        });
+      }
+
       root.querySelectorAll("[data-id]").forEach((el) => {
         el.addEventListener("click", (ev) => {
           if (ev.target.closest("[data-sub]")) return;

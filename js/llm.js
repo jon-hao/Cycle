@@ -1,6 +1,6 @@
 /**
- * 浏览器端大模型（WebLLM + Qwen），无需本机 Ollama。
- * 首次解读时懒加载；无 WebGPU 时回退通俗简版。
+ * 浏览器端大模型（WebLLM + Qwen）
+ * 下载状态写入 localStorage，刷新页面可续传/续显进度。
  */
 window.CycleLLM = (function () {
   const MODEL_CANDIDATES = [
@@ -8,11 +8,11 @@ window.CycleLLM = (function () {
     "Qwen2.5-0.5B-Instruct-q4f16_1-MLC",
     "Llama-3.2-1B-Instruct-q4f16_1-MLC",
   ];
+  const STATE_KEY = "cycle-llm-dl";
 
   let engine = null;
   let loading = null;
-  let progressText = "";
-  let lastError = "";
+  let listeners = new Set();
 
   function settings() {
     try {
@@ -23,47 +23,116 @@ window.CycleLLM = (function () {
     }
   }
 
+  function readState() {
+    try {
+      return (
+        JSON.parse(localStorage.getItem(STATE_KEY) || "null") || {
+          status: "idle",
+          progress: 0,
+          text: "",
+          model: MODEL_CANDIDATES[0],
+        }
+      );
+    } catch (_) {
+      return { status: "idle", progress: 0, text: "", model: MODEL_CANDIDATES[0] };
+    }
+  }
+
+  function writeState(partial) {
+    const next = Object.assign(readState(), partial, { updatedAt: Date.now() });
+    localStorage.setItem(STATE_KEY, JSON.stringify(next));
+    listeners.forEach((fn) => {
+      try {
+        fn(next);
+      } catch (_) {}
+    });
+    return next;
+  }
+
+  function onState(fn) {
+    listeners.add(fn);
+    fn(readState());
+    return () => listeners.delete(fn);
+  }
+
   function hasWebGPU() {
     return typeof navigator !== "undefined" && !!navigator.gpu;
   }
 
+  function getStatus() {
+    return readState();
+  }
+
   async function ensureEngine(onProgress) {
-    if (engine) return engine;
+    if (engine) {
+      writeState({ status: "ready", progress: 1, text: "ready" });
+      return engine;
+    }
     if (loading) return loading;
     if (!hasWebGPU()) {
-      lastError = "no-webgpu";
+      writeState({
+        status: "error",
+        progress: 0,
+        text: "no-webgpu",
+      });
       return null;
     }
 
     loading = (async () => {
+      writeState({ status: "downloading", progress: 0, text: "starting" });
       try {
         const webllm = await import("https://esm.run/@mlc-ai/web-llm@0.2.79");
-        const preferred = settings().model;
+        const preferred = settings().model || readState().model;
         const list = preferred
-          ? [preferred, ...MODEL_CANDIDATES]
+          ? [preferred, ...MODEL_CANDIDATES.filter((m) => m !== preferred)]
           : MODEL_CANDIDATES.slice();
         let lastErr = null;
         for (const modelId of list) {
           try {
-            progressText = modelId;
+            writeState({
+              status: "downloading",
+              model: modelId,
+              progress: 0,
+              text: modelId,
+            });
             if (onProgress) onProgress(0, modelId);
             engine = await webllm.CreateMLCEngine(modelId, {
               initProgressCallback: (p) => {
-                progressText = p.text || modelId;
-                if (onProgress) onProgress(p.progress || 0, progressText);
+                const progress = typeof p.progress === "number" ? p.progress : 0;
+                const text = p.text || modelId;
+                writeState({
+                  status: "downloading",
+                  model: modelId,
+                  progress,
+                  text,
+                });
+                if (onProgress) onProgress(progress, text);
               },
             });
-            lastError = "";
+            writeState({
+              status: "ready",
+              model: modelId,
+              progress: 1,
+              text: "ready",
+            });
             return engine;
           } catch (e) {
             lastErr = e;
             engine = null;
           }
         }
-        lastError = String(lastErr && lastErr.message ? lastErr.message : lastErr);
+        writeState({
+          status: "error",
+          progress: 0,
+          text: String(lastErr && lastErr.message ? lastErr.message : lastErr),
+        });
         return null;
       } catch (e) {
-        lastError = String(e && e.message ? e.message : e);
+        writeState({
+          status: "error",
+          progress: 0,
+          text: String(e && e.message ? e.message : e),
+        });
         return null;
       } finally {
         loading = null;
@@ -71,6 +140,26 @@ window.CycleLLM = (function () {
     })();
 
     return loading;
+  }
+
+  /** 用户点击「下载模型」 */
+  function startDownload() {
+    if (engine) {
+      writeState({ status: "ready", progress: 1, text: "ready" });
+      return Promise.resolve(engine);
+    }
+    const st = readState();
+    if (st.status === "downloading" && loading) return loading;
+    return ensureEngine();
+  }
+
+  /** 刷新后若上次在下载中 / 已就绪，自动续上 */
+  function resumeIfNeeded() {
+    const st = readState();
+    if (st.status === "downloading" || st.status === "ready") {
+      return ensureEngine();
+    }
+    return Promise.resolve(null);
   }
 
   function colloquialSystem(lang) {
@@ -123,7 +212,7 @@ window.CycleLLM = (function () {
 
   async function chat(system, user, onProgress) {
     const eng = await ensureEngine(onProgress);
-    if (!eng) return { ok: false, error: lastError || "engine" };
+    if (!eng) return { ok: false, error: readState().text || "engine" };
     try {
       const reply = await eng.chat.completions.create({
         messages: [
@@ -179,31 +268,34 @@ window.CycleLLM = (function () {
       ok: false,
       text: fallback(kind, payload, lang),
       source: "fallback",
-      error: live.error || lastError,
+      error: live.error,
     };
   }
 
-  /** 预热：页面空闲时开始下模型（不阻塞 UI） */
   function warmup() {
-    if (!hasWebGPU()) return;
-    const run = () => {
-      ensureEngine().catch(() => {});
-    };
-    if ("requestIdleCallback" in window) {
-      requestIdleCallback(run, { timeout: 4000 });
-    } else {
-      setTimeout(run, 1200);
-    }
+    resumeIfNeeded();
   }
 
   function ping() {
+    const st = readState();
     return Promise.resolve({
-      ok: !!engine || hasWebGPU(),
+      ok: st.status === "ready" || hasWebGPU(),
       webgpu: hasWebGPU(),
-      ready: !!engine,
-      progress: progressText,
+      ready: !!engine || st.status === "ready",
+      progress: st.progress,
     });
   }
 
-  return { settings, ping, interpret, warmup, ensureEngine, hasWebGPU };
+  return {
+    settings,
+    ping,
+    interpret,
+    warmup,
+    ensureEngine,
+    hasWebGPU,
+    startDownload,
+    resumeIfNeeded,
+    onState,
+    getStatus,
+  };
 })();

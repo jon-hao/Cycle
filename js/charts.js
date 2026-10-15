@@ -253,18 +253,19 @@ window.CycleCharts = (function () {
   }
 
   /**
-   * 恐惧贪婪半圆仪表：4 段（极度恐慌 / 恐慌 / 贪婪 / 极度贪婪）
-   * trend: -1 偏恐慌，+1 偏贪婪，0 持平
+   * 恐惧贪婪上半圆仪表：4 段（极度恐慌 / 恐慌 / 贪婪 / 极度贪婪）
+   * 角度：180°(左) → 0°(右)，经顶部；trend -1/0/+1
    */
   function fearGreedGauge(svg, value, trend) {
     const ns = "http://www.w3.org/2000/svg";
     while (svg.firstChild) svg.removeChild(svg.firstChild);
-    const w = 320;
-    const h = 190;
+    const w = 340;
+    const h = 210;
     svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
     const cx = w / 2;
-    const cy = 150;
-    const r = 110;
+    const cy = 148;
+    const r = 108;
+    const strokeW = 20;
 
     function el(name, attrs, text) {
       const n = document.createElementNS(ns, name);
@@ -274,55 +275,55 @@ window.CycleCharts = (function () {
       return n;
     }
 
-    function polar(a, rr) {
-      return [cx + Math.cos(a) * rr, cy + Math.sin(a) * rr];
+    // 数学角：0° 右、90° 上、180° 左；SVG y 向下故用 cy - sin
+    function pt(deg, rr) {
+      const rad = (deg * Math.PI) / 180;
+      return [cx + rr * Math.cos(rad), cy - rr * Math.sin(rad)];
     }
 
-    // 半圆：从 π(左) 到 0(右)，值 0→100
-    function angleOf(v) {
-      return Math.PI - (Math.max(0, Math.min(100, v)) / 100) * Math.PI;
+    function arc(degFrom, degTo, rr) {
+      const [x0, y0] = pt(degFrom, rr);
+      const [x1, y1] = pt(degTo, rr);
+      // 从左到右沿上半圆：deg 递减，sweep=1
+      return `M ${x0.toFixed(2)} ${y0.toFixed(2)} A ${rr} ${rr} 0 0 1 ${x1.toFixed(2)} ${y1.toFixed(2)}`;
     }
 
-    function arcPath(a0, a1, rr) {
-      const [x0, y0] = polar(a0, rr);
-      const [x1, y1] = polar(a1, rr);
-      const large = a0 - a1 > Math.PI ? 1 : 0;
-      return `M ${x0} ${y0} A ${rr} ${rr} 0 ${large} 1 ${x1} ${y1}`;
+    function degOf(v) {
+      return 180 - (Math.max(0, Math.min(100, v)) / 100) * 180;
     }
 
     const segments = [
-      { a0: Math.PI, a1: (3 * Math.PI) / 4, color: "#c0392b", key: "fgExtremeFear" },
-      { a0: (3 * Math.PI) / 4, a1: Math.PI / 2, color: "#e67e22", key: "fgFear" },
-      { a0: Math.PI / 2, a1: Math.PI / 4, color: "#27ae60", key: "fgGreed" },
-      { a0: Math.PI / 4, a1: 0, color: "#1e8449", key: "fgExtremeGreed" },
+      { from: 180, to: 135, color: "#c0392b", key: "fgExtremeFear" },
+      { from: 135, to: 90, color: "#e67e22", key: "fgFear" },
+      { from: 90, to: 45, color: "#27ae60", key: "fgGreed" },
+      { from: 45, to: 0, color: "#1e8449", key: "fgExtremeGreed" },
     ];
 
     segments.forEach((s) => {
       el("path", {
-        d: arcPath(s.a0, s.a1, r),
+        d: arc(s.from, s.to, r),
         fill: "none",
         stroke: s.color,
-        "stroke-width": "18",
+        "stroke-width": String(strokeW),
         "stroke-linecap": "butt",
       });
     });
 
-    // 刻度标签
-    const labels = [
-      { v: 12, key: "fgExtremeFear", y: 78 },
-      { v: 37, key: "fgFear", y: 48 },
-      { v: 62, key: "fgGreed", y: 48 },
-      { v: 88, key: "fgExtremeGreed", y: 78 },
-    ];
-    labels.forEach((L) => {
-      const a = angleOf(L.v);
-      const [x, y] = polar(a, r - 36);
+    // 标签放在弧内侧，避免重叠
+    [
+      { deg: 157, key: "fgExtremeFear" },
+      { deg: 112, key: "fgFear" },
+      { deg: 68, key: "fgGreed" },
+      { deg: 23, key: "fgExtremeGreed" },
+    ].forEach((L) => {
+      const [x, y] = pt(L.deg, r - 34);
       el(
         "text",
         {
-          x,
-          y,
+          x: x.toFixed(1),
+          y: y.toFixed(1),
           "text-anchor": "middle",
+          "dominant-baseline": "middle",
           "font-size": "10",
           fill: "var(--muted)",
           "font-family": "Microsoft YaHei, sans-serif",
@@ -332,27 +333,27 @@ window.CycleCharts = (function () {
     });
 
     const v = value == null ? 50 : Number(value);
-    const needle = angleOf(v);
-    const [nx, ny] = polar(needle, r - 28);
+    const needleDeg = degOf(v);
+    const [nx, ny] = pt(needleDeg, r - 26);
     el("line", {
       x1: cx,
       y1: cy,
-      x2: nx,
-      y2: ny,
+      x2: nx.toFixed(1),
+      y2: ny.toFixed(1),
       stroke: "var(--ink)",
       "stroke-width": "3",
       "stroke-linecap": "round",
     });
-    el("circle", { cx, cy, r: 6, fill: "var(--ink)" });
-    el("circle", { cx: nx, cy: ny, r: 5, fill: "var(--accent)" });
+    el("circle", { cx, cy, r: 7, fill: "var(--ink)" });
+    el("circle", { cx: nx.toFixed(1), cy: ny.toFixed(1), r: 5, fill: "var(--accent)" });
 
     el(
       "text",
       {
         x: cx,
-        y: cy - 28,
+        y: cy - 36,
         "text-anchor": "middle",
-        "font-size": "28",
+        "font-size": "30",
         "font-weight": "700",
         fill: "var(--ink)",
         "font-family": "Microsoft YaHei, sans-serif",
@@ -360,32 +361,33 @@ window.CycleCharts = (function () {
       String(Math.round(v))
     );
 
-    // 趋势箭头：向左=更恐慌，向右=更贪婪
     const tr = trend || 0;
+    const trendY = cy + 28;
     if (tr !== 0) {
       const dir = tr > 0 ? 1 : -1;
-      const tipX = cx + dir * 48;
-      const baseX = cx + dir * 18;
+      const tipX = cx + dir * 52;
+      const baseX = cx + dir * 14;
+      const col = dir > 0 ? "#27ae60" : "#c0392b";
       el("line", {
         x1: baseX,
-        y1: cy + 22,
+        y1: trendY,
         x2: tipX,
-        y2: cy + 22,
-        stroke: dir > 0 ? "#27ae60" : "#c0392b",
+        y2: trendY,
+        stroke: col,
         "stroke-width": "3",
         "stroke-linecap": "round",
       });
       el("path", {
-        d: `M ${tipX} ${cy + 22} L ${tipX - dir * 10} ${cy + 16} L ${tipX - dir * 10} ${cy + 28} Z`,
-        fill: dir > 0 ? "#27ae60" : "#c0392b",
+        d: `M ${tipX} ${trendY} L ${tipX - dir * 10} ${trendY - 6} L ${tipX - dir * 10} ${trendY + 6} Z`,
+        fill: col,
       });
       el(
         "text",
         {
           x: cx,
-          y: cy + 42,
+          y: trendY + 22,
           "text-anchor": "middle",
-          "font-size": "11",
+          "font-size": "12",
           fill: "var(--muted)",
           "font-family": "Microsoft YaHei, sans-serif",
         },
@@ -396,9 +398,9 @@ window.CycleCharts = (function () {
         "text",
         {
           x: cx,
-          y: cy + 38,
+          y: trendY + 16,
           "text-anchor": "middle",
-          "font-size": "11",
+          "font-size": "12",
           fill: "var(--muted)",
           "font-family": "Microsoft YaHei, sans-serif",
         },

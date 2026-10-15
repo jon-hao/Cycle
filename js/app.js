@@ -140,9 +140,14 @@ window.CycleSelect = (function () {
     modal: document.getElementById("modal"),
     footer: document.getElementById("siteFooter"),
     indicator: document.getElementById("navIndicator"),
+    modelFab: document.getElementById("modelFab"),
+    modelFabLabel: document.getElementById("modelFabLabel"),
+    modelFabRing: document.getElementById("modelFabRing"),
+    ptr: document.getElementById("ptrIndicator"),
   };
 
   let countryCtl = null;
+  let refreshing = false;
 
   function countryOptions() {
     return [
@@ -170,7 +175,104 @@ window.CycleSelect = (function () {
     if (countryCtl) {
       countryCtl.refresh(countryOptions(), window.CycleState.country);
     }
+    paintModelFab(window.CycleLLM.getStatus());
     moveIndicator(false);
+  }
+
+  function paintModelFab(st) {
+    if (!els.modelFab) return;
+    const status = st.status || "idle";
+    els.modelFab.dataset.status = status;
+    const pct = Math.round((st.progress || 0) * 100);
+    if (els.modelFabRing) {
+      els.modelFabRing.style.setProperty("--p", String(st.progress || 0));
+    }
+    if (status === "ready") {
+      els.modelFabLabel.textContent = "✓";
+      els.modelFab.title = window.t("modelReady");
+    } else if (status === "downloading") {
+      els.modelFabLabel.textContent = pct + "%";
+      els.modelFab.title =
+        window.t("modelDownloading") + " " + pct + "%" + (st.text ? " · " + st.text : "");
+    } else if (status === "error") {
+      els.modelFabLabel.textContent = "!";
+      els.modelFab.title = window.t("modelError") + (st.text ? ": " + st.text : "");
+    } else {
+      els.modelFabLabel.textContent = "AI";
+      els.modelFab.title = window.t("modelDownload");
+    }
+  }
+
+  function wireModelFab() {
+    if (!els.modelFab) return;
+    window.CycleLLM.onState(paintModelFab);
+    els.modelFab.addEventListener("click", () => {
+      const st = window.CycleLLM.getStatus();
+      if (st.status === "ready") return;
+      if (st.status === "downloading") return;
+      window.CycleLLM.startDownload();
+    });
+  }
+
+  function wirePullToRefresh() {
+    const main = els.main;
+    let startY = 0;
+    let pulling = false;
+
+    main.addEventListener(
+      "touchstart",
+      (e) => {
+        if (main.scrollTop > 0 || refreshing) return;
+        startY = e.touches[0].clientY;
+        pulling = true;
+      },
+      { passive: true }
+    );
+
+    main.addEventListener(
+      "touchmove",
+      (e) => {
+        if (!pulling || refreshing) return;
+        const dy = e.touches[0].clientY - startY;
+        if (dy > 12 && main.scrollTop <= 0) {
+          if (els.ptr) {
+            els.ptr.hidden = false;
+            els.ptr.textContent = window.t("pullRefresh");
+            els.ptr.style.transform = `translateY(${Math.min(72, dy * 0.4)}px)`;
+          }
+          if (dy > 70 && e.cancelable) e.preventDefault();
+        }
+      },
+      { passive: false }
+    );
+
+    main.addEventListener(
+      "touchend",
+      async (e) => {
+        if (!pulling) return;
+        pulling = false;
+        const dy = (e.changedTouches[0] && e.changedTouches[0].clientY) - startY;
+        if (els.ptr) {
+          els.ptr.style.transform = "";
+        }
+        if (dy > 70 && main.scrollTop <= 0 && !refreshing) {
+          refreshing = true;
+          if (els.ptr) {
+            els.ptr.hidden = false;
+            els.ptr.textContent = window.t("refreshing");
+          }
+          try {
+            await renderPage(false);
+          } finally {
+            refreshing = false;
+            if (els.ptr) els.ptr.hidden = true;
+          }
+        } else if (els.ptr) {
+          els.ptr.hidden = true;
+        }
+      },
+      { passive: true }
+    );
   }
 
   function moveIndicator(animate) {
@@ -279,12 +381,16 @@ window.CycleSelect = (function () {
   }
 
   async function init() {
-    // 空闲时预热浏览器端 Qwen（WebLLM）
-    if (window.CycleLLM && window.CycleLLM.warmup) window.CycleLLM.warmup();
-
     applyTheme();
     wire();
+    wireModelFab();
+    wirePullToRefresh();
     applyLang();
+
+    // 若上次下载未完成 / 已就绪，刷新后自动续上（不自动开下新模型）
+    if (window.CycleLLM && window.CycleLLM.resumeIfNeeded) {
+      window.CycleLLM.resumeIfNeeded();
+    }
 
     const h = (location.hash || "#data").replace("#", "");
     window.CycleState.page = ["data", "news", "calendar"].includes(h)

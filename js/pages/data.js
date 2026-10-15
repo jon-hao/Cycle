@@ -183,16 +183,17 @@ window.CyclePages.data = (function () {
         <p class="k-tap-hint card-date">${window.t("kDetails")}</p>
       </section>
 
-      <section class="metrics">
-        <div class="metric-card fg-card ${fg ? "" : "is-missing"}" data-metric="fear">
-          <div class="metric-top"><span class="card-title">${window.t("fearGreed")}</span>
-            <span class="card-date">${fg ? window.t(fgStageKey(fg.value)) : ""}</span></div>
-          ${
-            fg
-              ? `<svg id="fgGauge" class="fg-gauge"></svg>`
-              : `<div class="metric-value card-value">${window.t("missing")}</div>`
-          }
-        </div>
+      <section class="metric-card fg-card metric-full ${fg ? "" : "is-missing"}" data-metric="fear">
+        <div class="metric-top"><span class="card-title">${window.t("fearGreed")}</span>
+          <span class="card-date">${fg ? window.t(fgStageKey(fg.value)) : ""}</span></div>
+        ${
+          fg
+            ? `<svg id="fgGauge" class="fg-gauge"></svg>`
+            : `<div class="metric-value card-value">${window.t("missing")}</div>`
+        }
+      </section>
+
+      <section class="metrics metrics-grid">
         ${metricCard(
           "rate",
           `${bankLabel(code)} · ${rateLabel(code)}`,

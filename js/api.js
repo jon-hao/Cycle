@@ -386,15 +386,31 @@ window.CycleAPI = (function () {
       });
     }
 
-    // 去重
-    const seen = new Set();
-    const uniq = [];
+    // 去重：同日+同国家+同指标口径，优先 FinanceCalendar，且偏好字段更全的一条
+    function score(e) {
+      let s = 0;
+      if (e.source === "financecalendar") s += 20;
+      if (e.source === "pipatlas") s += 5;
+      if (e.forecast != null && e.forecast !== "" && e.forecast !== "—") s += 8;
+      if (e.actual != null && e.actual !== "" && e.actual !== "—") s += 10;
+      if (e.previous != null && e.previous !== "" && e.previous !== "—") s += 3;
+      if (e.datetime && String(e.datetime).includes("T")) s += 2;
+      return s;
+    }
+    function dayKey(e) {
+      const d = e.datetime ? String(e.datetime).slice(0, 10) : "";
+      const kind =
+        (window.CycleCalI18n && window.CycleCalI18n.dedupeKey(e.title)) ||
+        String(e.title || "").toLowerCase();
+      return d + "|" + (e.country || "") + "|" + kind + "|" + (e.tag || "");
+    }
+    const best = new Map();
     out.forEach((e) => {
-      const key = (e.datetime || "") + "|" + e.title;
-      if (seen.has(key)) return;
-      seen.add(key);
-      uniq.push(e);
+      const key = dayKey(e);
+      const prev = best.get(key);
+      if (!prev || score(e) > score(prev)) best.set(key, e);
     });
+    const uniq = [...best.values()];
 
     let filtered = uniq;
     if (country && country !== "GLOBAL") {
