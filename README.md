@@ -1,40 +1,46 @@
 # Cycle
 
-全球经济看板（静态 HTML）：康波周期 · 宏观数据 · 重要新闻 · 经济日历 · 本地大模型通俗解读。
+全球宏观看板（静态 SPA）：经济周期体制 · 美/中宏观 · 恐慌贪婪 · 新闻 · 日历 · 浏览器端 LLM 通俗解读。
 
 **在线：** https://jon-hao.github.io/Cycle/
 
 ## 功能
 
-- **Header**：左切国家，中间 Cycle Logo，右切语言（图标）/ 浅深色（日/月）
-- **Footer**：悬浮 50% 圆角毛玻璃，数据 · 新闻 · 日历，切换带指示动画
-- **数据页**：康波四象限（闪烁节点 + 方向箭头，可点开 500 年波形弹窗）、恐慌贪婪、利率 / 通胀 / CPI / PPI；进入页面自动调用本地 LLM
-- **新闻页**：跟随 Header 国家，仅展示重要快讯
-- **日历页**：日 / 周（无月历）；高影响数据；订阅按钮文案为「订阅」；美国四巫日
+- **Header**：国家（美 / 中 / 全球）、语言（简中 / 繁中 / EN）、浅深色
+- **Footer**：数据 · 新闻 · 日历
+- **数据页**
+  - **经济周期**：默认「实时体制」（增长 × 通胀四象限 + 方向箭头）；可切「长波示意」
+  - 弹窗：历史曲线 + 跨度（默认 **3 年·月**；另有 1/2/5 年月度，10/20/50 年年度）；阶段 / 倾向 / 组合含义由 **AI 分析**说明
+  - 恐慌贪婪仪表；利率 / 通胀 / CPI / PPI；美、中另有增长与信用指标卡
+- **新闻页**：重要快讯（随国家）
+- **日历页**：日 / 周；高影响数据；美股休市 / 四巫日
+- **Agent**：底部 AI 对话（WebLLM）
 
-## 本地大模型（Ollama）
+## 实时体制怎么读
 
-```bash
-ollama serve
-ollama pull llama3.2
-# 或 qwen2.5 等：localStorage.cycle-llm = {"model":"qwen2.5"}
-```
+1. 用宏观指标打出 **growth / inflation** 分，落入复苏 / 繁荣 / 滞胀 / 萧条
+2. 拨盘箭头表示倾向下一象限
+3. 弹窗曲线是体制高度（约 -1～+1）：上偏热、下偏冷；数据线**穿过 0** 时高亮零轴
 
-AI 解读默认使用浏览器端 **WebLLM + Qwen**（需 WebGPU；首次点击「查看AI分析」时加载）。无 WebGPU 时回退通俗简版。
+长波示意仅作技术浪潮背景，**调仓主信号以实时体制为准**。
 
-跨域数据优先走 **JSONP**（如 World Bank `format=jsonp&prefix=`、rss2json `callback=`）。
+## 本地大模型
+
+默认浏览器端 **WebLLM + Qwen**（需 WebGPU；首次点「查看AI分析」加载）。无 WebGPU 时回退通俗简版。
 
 ## 数据源（实时，无静态假数据）
 
 | 模块 | 来源 |
 |------|------|
-| 美国利率 / CPI / PPI | [MacroRadar](https://www.macroradar.io) |
+| 美国利率 / CPI / PPI / 就业 / 工业 / 零售 / M2 / GDP / 曲线 / 信贷等 | [MacroRadar](https://www.macroradar.io)（FRED 系，CORS） |
+| 中国 LPR | [东方财富](https://data.eastmoney.com) `RPTA_WEB_RATE`（CORS） |
+| 中国 CPI / PPI / 工业 / 社零 / M2 / PMI / 失业率 / GDP / 新开工 / 贷款等 | [ChinaData](https://chinadata.live)（NBS 镜像，CORS） |
 | 下次 FOMC / 日历 / 美股假日 | [FinanceCalendar](https://www.financecalendar.com) + [PipAtlas](https://pipatlas.com) |
-| 恐慌贪婪 | [fearandgreedgraph.com](https://fearandgreedgraph.com) |
-| 中国 / 全球通胀 | [World Bank](https://api.worldbank.org) `FP.CPI.TOTL.ZG`（浏览器 CORS） |
-| 重要新闻 | 金十 important RSS → [rss2json](https://api.rss2json.com)（绕过 RSSHub 非法 CORS）；失败回退 Google News RSS |
+| 恐慌贪婪（美） | [fearandgreedgraph.com](https://fearandgreedgraph.com)；中国暂无对等源 |
+| 全球年通胀兜底 | [World Bank](https://api.worldbank.org) `FP.CPI.TOTL.ZG`（JSONP） |
+| 重要新闻 | 金十 important RSS → [rss2json](https://api.rss2json.com) |
 
-拿不到的序列统一显示「数据缺失 / Unavailable」。中国月度 LPR / PPI 暂无稳定浏览器 CORS 源，故可能缺失。
+拿不到的序列统一显示「数据缺失 / Unavailable」。
 
 ## 本地预览
 
