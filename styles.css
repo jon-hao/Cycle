@@ -164,16 +164,20 @@ input {
   line-height: 0;
 }
 
-.icon-btn.icon-only svg,
-.icon-btn.icon-only .theme-icon {
+.icon-btn.icon-only svg {
   display: block;
   margin: auto;
   line-height: 0;
 }
 
-.icon-btn.icon-only .theme-icon[hidden],
-.theme-icon[hidden] {
-  display: none !important;
+.theme-icon {
+  display: none;
+  line-height: 0;
+}
+
+[data-theme="light"] .theme-sun,
+[data-theme="dark"] .theme-moon {
+  display: block;
 }
 
 button,

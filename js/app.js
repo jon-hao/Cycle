@@ -185,16 +185,9 @@ window.CycleSelect = (function () {
 
   function applyTheme() {
     document.documentElement.setAttribute("data-theme", window.CycleState.theme);
-    const dark = window.CycleState.theme === "dark";
-    const sun = els.themeBtn.querySelector(".theme-sun");
-    const moon = els.themeBtn.querySelector(".theme-moon");
-    if (sun) {
-      if (dark) sun.setAttribute("hidden", "");
-      else sun.removeAttribute("hidden");
-    }
-    if (moon) {
-      if (dark) moon.removeAttribute("hidden");
-      else moon.setAttribute("hidden", "");
+    if (els.themeBtn) {
+      els.themeBtn.title =
+        window.CycleState.theme === "dark" ? "Light" : "Dark";
     }
   }
 
