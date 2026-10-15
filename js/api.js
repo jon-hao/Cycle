@@ -246,22 +246,47 @@ window.CycleAPI = (function () {
     return String(s || "").replace(/<[^>]+>/g, "").trim();
   }
 
-  function newsFeedFor(country) {
+  function newsFeedsFor(country) {
+    const feeds = [JIN10_RSS];
     if (country === "CN") {
-      return (
+      feeds.push(
         "https://news.google.com/rss/search?q=" +
-        encodeURIComponent("中国 OR 央行 OR LPR OR 人民币 when:2d") +
-        "&hl=zh-CN&gl=CN&ceid=CN:zh-Hans"
+          encodeURIComponent("中国经济 OR 央行 OR LPR OR 人民币 OR 美联储 when:3d") +
+          "&hl=zh-CN&gl=CN&ceid=CN:zh-Hans"
+      );
+      feeds.push(
+        "https://news.google.com/rss/search?q=" +
+          encodeURIComponent("PBOC OR China CPI OR yuan when:3d") +
+          "&hl=en-US&gl=US&ceid=US:en"
+      );
+    } else if (country === "US") {
+      feeds.push(
+        "https://news.google.com/rss/search?q=" +
+          encodeURIComponent(
+            "Federal Reserve OR FOMC OR US inflation OR nonfarm OR Treasury when:3d"
+          ) +
+          "&hl=en-US&gl=US&ceid=US:en"
+      );
+      feeds.push(
+        "https://news.google.com/rss/search?q=" +
+          encodeURIComponent("forex market OR dollar OR Fed speakers when:3d") +
+          "&hl=en-US&gl=US&ceid=US:en"
+      );
+    } else {
+      feeds.push(
+        "https://news.google.com/rss/search?q=" +
+          encodeURIComponent(
+            "central bank OR inflation OR forex OR Federal Reserve OR ECB when:3d"
+          ) +
+          "&hl=en-US&gl=US&ceid=US:en"
+      );
+      feeds.push(
+        "https://news.google.com/rss/search?q=" +
+          encodeURIComponent("全球经济 OR 央行 OR 通胀 when:3d") +
+          "&hl=zh-CN&gl=US&ceid=US:zh-Hans"
       );
     }
-    if (country === "US") {
-      return (
-        "https://news.google.com/rss/search?q=" +
-        encodeURIComponent("Federal Reserve OR FOMC OR US economy when:2d") +
-        "&hl=en-US&gl=US&ceid=US:en"
-      );
-    }
-    return JIN10_RSS;
+    return feeds;
   }
 
   async function fetchRssViaJson(feedUrl) {
@@ -288,19 +313,26 @@ window.CycleAPI = (function () {
   }
 
   async function fetchImportantNews(country) {
-    // 优先：金十重要快讯（经 rss2json）；失败再按国家用 Google News RSS
-    let items = await fetchRssViaJson(JIN10_RSS);
-    if (!items.length) {
-      items = await fetchRssViaJson(newsFeedFor(country || "GLOBAL"));
-    }
+    // 金十 important + 多路 Google News（宏观/外汇相关）合并去重
+    const feeds = newsFeedsFor(country || "GLOBAL");
+    const batches = await Promise.all(feeds.map((f) => fetchRssViaJson(f)));
+    const seen = new Set();
+    let items = [];
+    batches.flat().forEach((n) => {
+      const key = (n.title || "").slice(0, 80);
+      if (!key || seen.has(key)) return;
+      seen.add(key);
+      items.push(n);
+    });
+    items.sort((a, b) => new Date(b.time) - new Date(a.time));
     if (!items.length) return null;
     if (country && country !== "GLOBAL") {
       const filtered = items.filter(
         (n) => n.countryGuess === country || n.countryGuess === "GLOBAL"
       );
-      items = filtered.length ? filtered : items;
+      items = filtered.length >= 8 ? filtered : items;
     }
-    return items.slice(0, 40);
+    return items.slice(0, 60);
   }
 
   function mapCalendarEvent(e, source) {

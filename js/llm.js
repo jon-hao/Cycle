@@ -162,10 +162,15 @@ window.CycleLLM = (function () {
     return Promise.resolve(null);
   }
 
-  function colloquialSystem(lang) {
+  function colloquialSystem(lang, kind) {
+    if (kind === "news") {
+      return lang === "zh"
+        ? "你是宏观市场分析员。根据新闻判断可能受影响的行业或板块（如银行、地产、科技、能源、消费、出口等），说明为什么；用大白话分三段：市场含义、可能受益板块、可能承压板块。不要复述标题，不要喊买卖。"
+        : "You are a macro desk analyst. Infer which industries/sectors may be affected and why. Reply in 3 plain parts: market implication, sectors that may benefit, sectors that may struggle. Do not restate the headline. No trade calls.";
+    }
     return lang === "zh"
-      ? "你是接地气的宏观解说员。用大白话讲清楚，少用术语；必须分三小段：现在怎么看、谁可能舒服、谁可能难受。不要编造没给的数字，不要喊买卖口号。不要输出思考过程。"
-      : "You are a plain-spoken macro guide. Everyday English, light jargon. Reply in 3 short parts: the takeaway, who may benefit, who may struggle. Do not invent numbers. No trade calls. No chain-of-thought.";
+      ? "你是宏观市场分析员。根据给出的数据判断当前市场处于什么状态（如偏紧/偏松、风险偏好高低、通胀压力等），用大白话分三段：市场状态判断、谁可能更舒服、谁可能更难受。不要把数字复述一遍当分析，不要喊买卖，不要输出思考过程。"
+      : "You are a macro desk analyst. Infer the market regime from the numbers (tight/loose, risk appetite, inflation pressure). Reply in 3 plain parts: regime call, who may benefit, who may struggle. Do not recite the input numbers. No trade calls. No chain-of-thought.";
   }
 
   function fallback(kind, payload, lang) {
@@ -185,13 +190,13 @@ window.CycleLLM = (function () {
 
     if (kind === "macro") {
       return zh
-        ? `现在怎么看：利率大约 ${rate}%，物价相关读数大约 ${cpi}%。整体更像“边走边看”。\n谁可能舒服：现金流稳、负债不重的公司更抗造。\n谁可能难受：靠借钱扩张、估值已经很贵的方向更敏感。`
-        : `Takeaway: rate ~${rate}%, CPI-like ~${cpi}%. Wait-and-see mood.\nMay benefit: steady cashflow, lighter leverage.\nMay struggle: highly levered, rich-valuation stories.`;
+        ? `市场状态：利率在 ${rate}% 附近、物价相关约 ${cpi}%，更像“政策边走边看、风险偏好不高不低”的过渡市。\n可能更舒服：现金流稳、负债轻的防御与高股息方向。\n可能更难受：高杠杆成长、估值已经很贵的题材更敏感。`
+        : `Regime: rates near ${rate}%, prices near ${cpi}% — a wait-and-see market with middling risk appetite.\nMay benefit: steady cashflow, lighter leverage, defensives.\nMay struggle: highly levered growth and rich valuations.`;
     }
     if (kind === "news") {
       return zh
-        ? `现在怎么看：这是一条重要快讯，先看它会不会改变“利率/风险偏好”两件事。\n谁可能舒服：防御和红利类往往更稳。\n谁可能难受：拥挤的高估值交易更容易晃。`
-        : `Takeaway: an important flash — watch rates and risk appetite.\nMay benefit: defensives/dividends.\nMay struggle: crowded high-valuation trades.`;
+        ? `市场含义：这条快讯更可能先扰动“利率预期/风险偏好”，再传导到板块。\n可能受益：防御、红利、现金流稳的行业往往更稳。\n可能承压：拥挤的高估值成长、利率敏感板块更容易晃。`
+        : `Implication: this flash may first move rate expectations / risk appetite.\nMay benefit: defensives, dividends, steady-cashflow sectors.\nMay struggle: crowded high-valuation growth and rate-sensitive names.`;
     }
     if (kind === "wave") {
       return zh
@@ -237,28 +242,28 @@ window.CycleLLM = (function () {
   }
 
   async function interpret(kind, payload, lang, onProgress) {
-    const system = colloquialSystem(lang);
+    const system = colloquialSystem(lang, kind);
     let user = "";
     if (kind === "macro") {
       user =
         lang === "zh"
-          ? `国家=${payload.countryLabel}；康波=K${payload.waveId} ${payload.phase}；利率=${payload.rate}；通胀=${payload.inflation}；CPI=${payload.cpi}；PPI=${payload.ppi}；恐慌贪婪=${payload.fearGreed}。请通俗解说。`
-          : `Country=${payload.countryLabel}; Wave=K${payload.waveId} ${payload.phase}; rate=${payload.rate}; inflation=${payload.inflation}; CPI=${payload.cpi}; PPI=${payload.ppi}; Fear&Greed=${payload.fearGreed}. Plain language please.`;
+          ? `背景数据（勿复述，只用来判断状态）：国家=${payload.countryLabel}；康波=K${payload.waveId} ${payload.phase}；利率=${payload.rate}；通胀=${payload.inflation}；CPI=${payload.cpi}；PPI=${payload.ppi}；恐慌贪婪=${payload.fearGreed}。请判断市场状态。`
+          : `Background (do not recite): country=${payload.countryLabel}; wave=K${payload.waveId} ${payload.phase}; rate=${payload.rate}; inflation=${payload.inflation}; CPI=${payload.cpi}; PPI=${payload.ppi}; Fear&Greed=${payload.fearGreed}. Infer the market regime.`;
     } else if (kind === "news") {
       user =
         lang === "zh"
-          ? `重要新闻：${payload.title}\n摘要：${payload.summary}\n请通俗解说。`
-          : `Headline: ${payload.title}\nSummary: ${payload.summary}\nPlain language please.`;
+          ? `新闻：${payload.title}\n摘要：${payload.summary}\n请分析可能影响哪些行业/板块。`
+          : `Headline: ${payload.title}\nSummary: ${payload.summary}\nWhich industries/sectors may be affected?`;
     } else if (kind === "wave") {
       user =
         lang === "zh"
-          ? `康波当前位置：K${payload.waveId}，阶段=${payload.phase}，进度=${payload.progress}%。用大白话讲气候。`
-          : `Kondratiev now: K${payload.waveId}, phase=${payload.phase}, progress=${payload.progress}%. Plain words.`;
+          ? `康波：K${payload.waveId}，阶段=${payload.phase}，进度=${payload.progress}%。判断当前宏观气候与市场含义，不要只复述阶段名。`
+          : `Kondratiev: K${payload.waveId}, phase=${payload.phase}, progress=${payload.progress}%. Infer climate and market meaning; do not just restate the phase.`;
     } else {
       user =
         lang === "zh"
-          ? `经济数据事件：${payload.title}；期望=${payload.forecast}；公布=${payload.actual}；前值=${payload.previous}。通俗解说。`
-          : `Release: ${payload.title}; forecast=${payload.forecast}; actual=${payload.actual}; previous=${payload.previous}. Plain language.`;
+          ? `数据事件：${payload.title}；期望=${payload.forecast}；公布=${payload.actual}；前值=${payload.previous}。判断对市场状态的含义。`
+          : `Release: ${payload.title}; forecast=${payload.forecast}; actual=${payload.actual}; previous=${payload.previous}. What does it imply for market regime?`;
     }
 
     const live = await chat(system, user, onProgress);

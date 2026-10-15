@@ -3,8 +3,8 @@ window.CyclePages = window.CyclePages || {};
 window.CyclePages.calendar = (function () {
   let view = "day";
   let cursor = startOfDay(new Date());
-  let pickerOpen = false;
   let pickerCursor = new Date();
+  let cache = null;
 
   function startOfDay(d) {
     const x = new Date(d);
@@ -35,11 +35,19 @@ window.CyclePages.calendar = (function () {
     return startOfDay(addDays(d, offset));
   }
 
+  function formatHeading(d) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    const wd = d.toLocaleDateString(locale(), { weekday: "short" });
+    return `${y}.${m}.${day} ${wd}`;
+  }
+
   function icsForEvent(e) {
     const start = new Date(e.datetime);
     const end = new Date(start.getTime() + 30 * 60 * 1000);
-    const stamp = (d) =>
-      d.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+    const stamp = (x) =>
+      x.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
     const title = trTitle(e.title);
     const desc = `${window.t("forecast")}: ${e.forecast}; ${window.t("actual")}: ${e.actual ?? "—"}; ${window.t("previous")}: ${e.previous}`;
     return [
@@ -104,7 +112,6 @@ window.CyclePages.calendar = (function () {
     `);
     document.getElementById("subEvent").addEventListener("click", () => {
       downloadIcs(e);
-      document.getElementById("subEvent").textContent = window.t("subscribed");
     });
     window.CycleAIUI.mount(document.getElementById("aiEventHost"), "event", {
       title,
@@ -130,61 +137,92 @@ window.CyclePages.calendar = (function () {
     </div>`;
   }
 
-  function pickerHtml() {
-    const y = pickerCursor.getFullYear();
-    const m = pickerCursor.getMonth();
-    const first = new Date(y, m, 1);
-    const startPad = (first.getDay() + 6) % 7; // Monday-first
-    const daysInMonth = new Date(y, m + 1, 0).getDate();
-    const monthLabel = pickerCursor.toLocaleDateString(locale(), {
-      year: "numeric",
-      month: "long",
-    });
-
-    const cells = [];
-    for (let i = 0; i < startPad; i++) cells.push(`<div class="dp-cell empty"></div>`);
-    for (let d = 1; d <= daysInMonth; d++) {
-      const date = new Date(y, m, d);
-      const isToday = sameDay(date, new Date());
-      const isSelected =
-        view === "day"
-          ? sameDay(date, cursor)
-          : date >= mondayOf(cursor) && date < addDays(mondayOf(cursor), 7);
-      cells.push(
-        `<button type="button" class="dp-cell ${isToday ? "is-today" : ""} ${isSelected ? "is-selected" : ""}" data-pick="${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}">${d}</button>`
-      );
+  function openDatePicker(onDone) {
+    pickerCursor = new Date(cursor);
+    function paintPicker() {
+      const y = pickerCursor.getFullYear();
+      const m = pickerCursor.getMonth();
+      const first = new Date(y, m, 1);
+      const startPad = (first.getDay() + 6) % 7;
+      const daysInMonth = new Date(y, m + 1, 0).getDate();
+      const monthLabel = `${y}.${String(m + 1).padStart(2, "0")}`;
+      const cells = [];
+      for (let i = 0; i < startPad; i++) cells.push(`<div class="dp-cell empty"></div>`);
+      for (let d = 1; d <= daysInMonth; d++) {
+        const date = new Date(y, m, d);
+        const isToday = sameDay(date, new Date());
+        const isSelected =
+          view === "day"
+            ? sameDay(date, cursor)
+            : date >= mondayOf(cursor) && date < addDays(mondayOf(cursor), 7);
+        cells.push(
+          `<button type="button" class="dp-cell ${isToday ? "is-today" : ""} ${isSelected ? "is-selected" : ""}" data-pick="${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}">${d}</button>`
+        );
+      }
+      const weekdays =
+        window.CycleState.lang === "zh"
+          ? ["一", "二", "三", "四", "五", "六", "日"]
+          : ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+      return `
+        <div class="sheet-head"><h2 class="card-title">${window.t("pickDate")}</h2><button type="button" class="icon-btn" data-close>×</button></div>
+        <div class="date-picker in-modal">
+          <div class="dp-head">
+            <button type="button" class="icon-btn" id="dpPrevY">«</button>
+            <button type="button" class="icon-btn" id="dpPrevM">‹</button>
+            <strong class="card-title">${monthLabel}</strong>
+            <button type="button" class="icon-btn" id="dpNextM">›</button>
+            <button type="button" class="icon-btn" id="dpNextY">»</button>
+          </div>
+          <div class="dp-weekdays">${weekdays.map((w) => `<span>${w}</span>`).join("")}</div>
+          <div class="dp-grid">${cells.join("")}</div>
+          <p class="dp-hint card-content">${view === "week" ? window.t("pickWeekHint") : window.t("pickDayHint")}</p>
+        </div>`;
     }
 
-    const weekHint =
-      view === "week"
-        ? `<p class="dp-hint card-content">${window.t("pickWeekHint")}</p>`
-        : `<p class="dp-hint card-content">${window.t("pickDayHint")}</p>`;
+    function bindPicker() {
+      const sheet = document.getElementById("sheet");
+      sheet.querySelector("#dpPrevM").onclick = () => {
+        pickerCursor = new Date(pickerCursor.getFullYear(), pickerCursor.getMonth() - 1, 1);
+        sheet.innerHTML = paintPicker();
+        sheet.querySelector("[data-close]").onclick = () => window.CycleUI.closeModal();
+        bindPicker();
+      };
+      sheet.querySelector("#dpNextM").onclick = () => {
+        pickerCursor = new Date(pickerCursor.getFullYear(), pickerCursor.getMonth() + 1, 1);
+        sheet.innerHTML = paintPicker();
+        sheet.querySelector("[data-close]").onclick = () => window.CycleUI.closeModal();
+        bindPicker();
+      };
+      sheet.querySelector("#dpPrevY").onclick = () => {
+        pickerCursor = new Date(pickerCursor.getFullYear() - 1, pickerCursor.getMonth(), 1);
+        sheet.innerHTML = paintPicker();
+        sheet.querySelector("[data-close]").onclick = () => window.CycleUI.closeModal();
+        bindPicker();
+      };
+      sheet.querySelector("#dpNextY").onclick = () => {
+        pickerCursor = new Date(pickerCursor.getFullYear() + 1, pickerCursor.getMonth(), 1);
+        sheet.innerHTML = paintPicker();
+        sheet.querySelector("[data-close]").onclick = () => window.CycleUI.closeModal();
+        bindPicker();
+      };
+      sheet.querySelectorAll("[data-pick]").forEach((btn) => {
+        btn.onclick = () => {
+          const [yy, mm, dd] = btn.dataset.pick.split("-").map(Number);
+          cursor = startOfDay(new Date(yy, mm - 1, dd));
+          window.CycleUI.closeModal();
+          onDone();
+        };
+      });
+    }
 
-    return `
-      <div class="date-picker" id="datePicker">
-        <div class="dp-head">
-          <button type="button" class="icon-btn" id="dpPrevY" title="year">«</button>
-          <button type="button" class="icon-btn" id="dpPrevM">‹</button>
-          <strong class="card-title">${monthLabel}</strong>
-          <button type="button" class="icon-btn" id="dpNextM">›</button>
-          <button type="button" class="icon-btn" id="dpNextY">»</button>
-        </div>
-        <div class="dp-weekdays">
-          ${["一", "二", "三", "四", "五", "六", "日"]
-            .map((w, i) => {
-              const en = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][i];
-              return `<span>${window.CycleState.lang === "zh" ? w : en}</span>`;
-            })
-            .join("")}
-        </div>
-        <div class="dp-grid">${cells.join("")}</div>
-        ${weekHint}
-      </div>`;
+    window.CycleUI.openModal(paintPicker());
+    bindPicker();
   }
 
-  async function render(root) {
-    async function paint() {
-      root.innerHTML = `<div class="loading">${window.t("loading")}</div>`;
+  async function render(root, opts) {
+    const soft = opts && opts.soft;
+
+    async function paint(forceFetch) {
       let from;
       let to;
       let heading;
@@ -192,55 +230,80 @@ window.CyclePages.calendar = (function () {
       if (view === "day") {
         from = startOfDay(cursor);
         to = addDays(from, 1);
-        heading = cursor.toLocaleDateString(locale(), {
-          year: "numeric",
-          month: "long",
-          day: "numeric",
-          weekday: "short",
-        });
+        heading = formatHeading(cursor);
       } else {
         from = mondayOf(cursor);
         to = addDays(from, 7);
         heading =
-          from.toLocaleDateString(locale(), { month: "short", day: "numeric" }) +
-          " – " +
-          addDays(to, -1).toLocaleDateString(locale(), {
-            month: "short",
-            day: "numeric",
+          formatHeading(from).slice(0, 10) + " – " + formatHeading(addDays(to, -1)).slice(0, 10);
+      }
+
+      const cacheKey =
+        view +
+        "|" +
+        from.toISOString().slice(0, 10) +
+        "|" +
+        window.CycleState.country;
+
+      root.innerHTML = `
+        <section class="panel">
+          <div class="panel-head cal-toolbar">
+            <div class="seg seg-compact">
+              <button type="button" data-view="day" class="${view === "day" ? "active" : ""}">${window.t("day")}</button>
+              <button type="button" data-view="week" class="${view === "week" ? "active" : ""}">${window.t("week")}</button>
+            </div>
+            <div class="cal-nav">
+              <button type="button" class="icon-btn" id="prev">‹</button>
+              <button type="button" class="cal-heading card-title" id="openPicker">${heading}</button>
+              <button type="button" class="icon-btn" id="next">›</button>
+              <button type="button" class="btn tiny today-btn" id="todayBtn">${window.t("today")}</button>
+            </div>
+          </div>
+          <div id="calBody"><div class="skel-block skel-list"></div></div>
+        </section>
+      `;
+
+      let events;
+      if (
+        !forceFetch &&
+        soft &&
+        cache &&
+        cache.key === cacheKey &&
+        Array.isArray(cache.events)
+      ) {
+        events = cache.events;
+      } else {
+        events =
+          (await window.CycleAPI.fetchCalendar(
+            from.toISOString(),
+            to.toISOString(),
+            window.CycleState.country
+          )) || [];
+
+        if (window.CycleState.country === "US") {
+          window.CycleAPI.witchingDates(cursor.getFullYear()).forEach((d) => {
+            const dt = new Date(d + "T18:00:00Z");
+            if (dt >= from && dt < to) {
+              events.push({
+                id: "witch-" + d,
+                country: "US",
+                datetime: dt.toISOString(),
+                title: window.t("witching"),
+                forecast: "—",
+                actual: null,
+                previous: "—",
+                importance: 3,
+                tag: "witching",
+                source: "local",
+              });
+            }
           });
+        }
+        events.sort((a, b) => new Date(a.datetime) - new Date(b.datetime));
+        cache = { key: cacheKey, events };
       }
 
-      let events =
-        (await window.CycleAPI.fetchCalendar(
-          from.toISOString(),
-          to.toISOString(),
-          window.CycleState.country
-        )) || [];
-
-      if (window.CycleState.country === "US") {
-        const year = cursor.getFullYear();
-        window.CycleAPI.witchingDates(year).forEach((d) => {
-          const dt = new Date(d + "T18:00:00Z");
-          if (dt >= from && dt < to) {
-            events.push({
-              id: "witch-" + d,
-              country: "US",
-              datetime: dt.toISOString(),
-              title: window.t("witching"),
-              forecast: "—",
-              actual: null,
-              previous: "—",
-              importance: 3,
-              tag: "witching",
-              source: "local",
-            });
-          }
-        });
-      }
-
-      events.sort((a, b) => new Date(a.datetime) - new Date(b.datetime));
       const byId = Object.fromEntries(events.map((e) => [String(e.id), e]));
-
       let body = "";
       if (view === "week") {
         const days = [];
@@ -250,11 +313,7 @@ window.CyclePages.calendar = (function () {
             sameDay(new Date(e.datetime), dayDate)
           );
           days.push(`<div class="w-col ${sameDay(dayDate, new Date()) ? "today" : ""}">
-            <div class="w-head card-date">${dayDate.toLocaleDateString(locale(), {
-              weekday: "short",
-              month: "numeric",
-              day: "numeric",
-            })}</div>
+            <div class="w-head card-date">${dayDate.getMonth() + 1}.${dayDate.getDate()} ${dayDate.toLocaleDateString(locale(), { weekday: "short" })}</div>
             ${
               dayEvents.length
                 ? dayEvents
@@ -283,94 +342,30 @@ window.CyclePages.calendar = (function () {
           : `<div class="empty">${window.t("noEvents")}</div>`;
       }
 
-      root.innerHTML = `
-        <section class="panel">
-          <div class="panel-head cal-toolbar">
-            <div class="seg">
-              <button type="button" data-view="day" class="${view === "day" ? "active" : ""}">${window.t("day")}</button>
-              <button type="button" data-view="week" class="${view === "week" ? "active" : ""}">${window.t("week")}</button>
-            </div>
-            <div class="cal-nav">
-              <button type="button" class="icon-btn" id="prev">‹</button>
-              <button type="button" class="cal-heading card-title" id="openPicker">${heading}</button>
-              <button type="button" class="icon-btn" id="next">›</button>
-              <button type="button" class="btn tiny today-btn" id="todayBtn">${window.t("today")}</button>
-            </div>
-          </div>
-          ${pickerOpen ? pickerHtml() : ""}
-          ${body}
-        </section>
-      `;
+      const calBody = root.querySelector("#calBody");
+      if (calBody) calBody.innerHTML = body;
 
       root.querySelectorAll("[data-view]").forEach((b) => {
         b.addEventListener("click", () => {
           view = b.dataset.view;
-          pickerOpen = false;
-          paint();
+          paint(true);
         });
       });
       root.querySelector("#prev").addEventListener("click", () => {
         cursor = view === "day" ? addDays(cursor, -1) : addDays(cursor, -7);
-        paint();
+        paint(true);
       });
       root.querySelector("#next").addEventListener("click", () => {
         cursor = view === "day" ? addDays(cursor, 1) : addDays(cursor, 7);
-        paint();
+        paint(true);
       });
       root.querySelector("#todayBtn").addEventListener("click", () => {
         cursor = startOfDay(new Date());
-        pickerOpen = false;
-        paint();
+        paint(true);
       });
       root.querySelector("#openPicker").addEventListener("click", () => {
-        pickerOpen = !pickerOpen;
-        pickerCursor = new Date(cursor);
-        paint();
+        openDatePicker(() => paint(true));
       });
-
-      if (pickerOpen) {
-        root.querySelector("#dpPrevM").addEventListener("click", () => {
-          pickerCursor = new Date(
-            pickerCursor.getFullYear(),
-            pickerCursor.getMonth() - 1,
-            1
-          );
-          paint();
-        });
-        root.querySelector("#dpNextM").addEventListener("click", () => {
-          pickerCursor = new Date(
-            pickerCursor.getFullYear(),
-            pickerCursor.getMonth() + 1,
-            1
-          );
-          paint();
-        });
-        root.querySelector("#dpPrevY").addEventListener("click", () => {
-          pickerCursor = new Date(
-            pickerCursor.getFullYear() - 1,
-            pickerCursor.getMonth(),
-            1
-          );
-          paint();
-        });
-        root.querySelector("#dpNextY").addEventListener("click", () => {
-          pickerCursor = new Date(
-            pickerCursor.getFullYear() + 1,
-            pickerCursor.getMonth(),
-            1
-          );
-          paint();
-        });
-        root.querySelectorAll("[data-pick]").forEach((btn) => {
-          btn.addEventListener("click", () => {
-            const [yy, mm, dd] = btn.dataset.pick.split("-").map(Number);
-            cursor = startOfDay(new Date(yy, mm - 1, dd));
-            pickerOpen = false;
-            paint();
-          });
-        });
-      }
-
       root.querySelectorAll("[data-id]").forEach((el) => {
         el.addEventListener("click", (ev) => {
           if (ev.target.closest("[data-sub]")) return;
@@ -382,15 +377,12 @@ window.CyclePages.calendar = (function () {
         btn.addEventListener("click", (ev) => {
           ev.stopPropagation();
           const e = byId[decodeURIComponent(btn.dataset.sub)];
-          if (e) {
-            downloadIcs(e);
-            btn.textContent = window.t("subscribed");
-          }
+          if (e) downloadIcs(e);
         });
       });
     }
 
-    await paint();
+    await paint(!(soft && cache));
   }
 
   return { render };

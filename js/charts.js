@@ -277,26 +277,6 @@ window.CycleCharts = (function () {
     el("line", { x1: cx - r, y1: cy, x2: cx + r, y2: cy, stroke: "var(--line)" });
     el("line", { x1: cx, y1: cy - r, x2: cx, y2: cy + r, stroke: "var(--line)" });
 
-    [
-      { t: window.t("summer"), x: cx - r * 0.52, y: cy - r * 0.52 },
-      { t: window.t("spring"), x: cx + r * 0.52, y: cy - r * 0.52 },
-      { t: window.t("autumn"), x: cx - r * 0.52, y: cy + r * 0.58 },
-      { t: window.t("winter"), x: cx + r * 0.52, y: cy + r * 0.58 },
-    ].forEach((L) =>
-      el(
-        "text",
-        {
-          x: L.x,
-          y: L.y,
-          "text-anchor": "middle",
-          fill: "var(--muted)",
-          "font-size": "13",
-          "font-family": "Microsoft YaHei, sans-serif",
-        },
-        L.t
-      )
-    );
-
     const px = cx + model.x * r * 0.88;
     const py = cy - model.y * r * 0.88;
     el("circle", { cx: px, cy: py, r: 16, class: "pulse-ring", fill: "var(--accent)", opacity: "0.35" });

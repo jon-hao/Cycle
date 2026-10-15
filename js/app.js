@@ -238,7 +238,10 @@ window.CycleSelect = (function () {
           if (els.ptr) {
             els.ptr.hidden = false;
             els.ptr.textContent = window.t("pullRefresh");
-            els.ptr.style.transform = `translateY(${Math.min(72, dy * 0.4)}px)`;
+            els.ptr.style.setProperty(
+              "--ptr-y",
+              Math.min(72, dy * 0.4) + "px"
+            );
           }
           if (dy > 70 && e.cancelable) e.preventDefault();
         }
@@ -253,7 +256,7 @@ window.CycleSelect = (function () {
         pulling = false;
         const dy = (e.changedTouches[0] && e.changedTouches[0].clientY) - startY;
         if (els.ptr) {
-          els.ptr.style.transform = "";
+          els.ptr.style.setProperty("--ptr-y", "0px");
         }
         if (dy > 70 && main.scrollTop <= 0 && !refreshing) {
           refreshing = true;
@@ -286,7 +289,7 @@ window.CycleSelect = (function () {
     els.indicator.classList.toggle("no-anim", !animate);
   }
 
-  async function renderPage(withFx) {
+  async function renderPage(withFx, opts) {
     const page = window.CycleState.page;
     document.querySelectorAll(".nav-btn").forEach((b) => {
       b.classList.toggle("active", b.dataset.page === page);
@@ -299,12 +302,11 @@ window.CycleSelect = (function () {
       await new Promise((r) => setTimeout(r, 160));
     }
 
-    els.main.innerHTML = `<div class="loading">${window.t("loading")}</div>`;
     els.main.classList.remove("page-exit");
     els.main.classList.add("page-enter");
 
     const view = window.CyclePages[page];
-    if (view && view.render) await view.render(els.main);
+    if (view && view.render) await view.render(els.main, opts || {});
   }
 
   function setPage(page) {
@@ -337,7 +339,8 @@ window.CycleSelect = (function () {
       window.CycleState.lang = window.CycleState.lang === "zh" ? "en" : "zh";
       localStorage.setItem("cycle-lang", window.CycleState.lang);
       applyLang();
-      renderPage(false);
+      // 只切换文案，不重新拉数据
+      renderPage(false, { soft: true });
     });
 
     document.querySelectorAll(".nav-btn").forEach((b) => {
