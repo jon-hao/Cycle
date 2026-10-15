@@ -29,20 +29,6 @@ window.CycleAPI = (function () {
     }
   }
 
-  async function getText(url) {
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 12000);
-    try {
-      const res = await fetch(url, { signal: ctrl.signal });
-      clearTimeout(t);
-      if (!res.ok) throw new Error("HTTP " + res.status);
-      return await res.text();
-    } catch (_) {
-      clearTimeout(t);
-      return null;
-    }
-  }
-
   function toPoints(obs) {
     if (!Array.isArray(obs)) return null;
     const pts = obs
