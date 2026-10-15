@@ -277,6 +277,36 @@ window.CycleCharts = (function () {
     el("line", { x1: cx - r, y1: cy, x2: cx + r, y2: cy, stroke: "var(--line)" });
     el("line", { x1: cx, y1: cy - r, x2: cx, y2: cy + r, stroke: "var(--line)" });
 
+    // 象限文案：仅阶段名（复苏/繁荣/滞胀/萧条），不含春夏秋冬
+    // 顺时针：春右上 → 夏左上 → 秋左下 → 冬右下
+    const labelR = r * 0.55;
+    const phaseLabels = [
+      { key: "spring", x: cx + labelR * 0.72, y: cy - labelR * 0.72, color: "#1f8a5b" },
+      { key: "summer", x: cx - labelR * 0.72, y: cy - labelR * 0.72, color: "#1a5fbf" },
+      { key: "autumn", x: cx - labelR * 0.72, y: cy + labelR * 0.72, color: "#c0392b" },
+      { key: "winter", x: cx + labelR * 0.72, y: cy + labelR * 0.72, color: "#6b4fd8" },
+    ];
+    phaseLabels.forEach((L) => {
+      const text =
+        (window.CycleKondratiev && window.CycleKondratiev.phaseLabel
+          ? window.CycleKondratiev.phaseLabel(L.key)
+          : window.t(L.key + "Short")) || window.t(L.key);
+      el(
+        "text",
+        {
+          x: L.x,
+          y: L.y,
+          "text-anchor": "middle",
+          "dominant-baseline": "middle",
+          "font-size": "15",
+          "font-weight": "700",
+          fill: L.color,
+          "font-family": "Microsoft YaHei, sans-serif",
+        },
+        text
+      );
+    });
+
     const px = cx + model.x * r * 0.88;
     const py = cy - model.y * r * 0.88;
     el("circle", { cx: px, cy: py, r: 16, class: "pulse-ring", fill: "var(--accent)", opacity: "0.35" });
