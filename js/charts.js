@@ -38,7 +38,6 @@ window.CycleCharts = (function () {
         xUnit: "",
         yUnit: "",
         xTicks: 5,
-        zeroLine: false,
       },
       opts || {}
     );
@@ -71,13 +70,8 @@ window.CycleCharts = (function () {
       ctx.clearRect(0, 0, w, h);
 
       const vals = points.map((p) => p.v);
-      let min = Math.min(...vals);
-      let max = Math.max(...vals);
-      // 周期图强制纳入 0，便于区分冷热两侧
-      if (o.zeroLine) {
-        min = Math.min(min, 0);
-        max = Math.max(max, 0);
-      }
+      const min = Math.min(...vals);
+      const max = Math.max(...vals);
       const span = max - min || 1;
       const padL = o.padL;
       const padR = o.padR;
@@ -89,6 +83,7 @@ window.CycleCharts = (function () {
       const muted = themeColor("--muted", "#888");
       const line = themeColor("--line", "#ccc");
       const yAt = (v) => padT + ih - ((v - min) / span) * ih;
+      const crossesZero = min < 0 && max > 0;
 
       ctx.strokeStyle = line;
       ctx.lineWidth = 1;
@@ -100,24 +95,22 @@ window.CycleCharts = (function () {
         ctx.stroke();
       }
 
-      // 高亮 y=0 基准线
-      if (o.zeroLine || (min < 0 && max > 0)) {
+      // 数据线穿越 0 时才高亮基准线；全程在 0 以上/以下则不加
+      if (crossesZero) {
         const y0 = yAt(0);
-        if (y0 >= padT - 0.5 && y0 <= padT + ih + 0.5) {
-          ctx.beginPath();
-          ctx.moveTo(padL, y0);
-          ctx.lineTo(w - padR, y0);
-          ctx.strokeStyle = ink;
-          ctx.globalAlpha = 0.55;
-          ctx.lineWidth = 1.6;
-          ctx.stroke();
-          ctx.globalAlpha = 1;
-          ctx.lineWidth = 1;
-          ctx.fillStyle = ink;
-          ctx.font = "11px 'Microsoft YaHei', sans-serif";
-          ctx.textAlign = "right";
-          ctx.fillText("0", padL - 6, y0 + 4);
-        }
+        ctx.beginPath();
+        ctx.moveTo(padL, y0);
+        ctx.lineTo(w - padR, y0);
+        ctx.strokeStyle = ink;
+        ctx.globalAlpha = 0.55;
+        ctx.lineWidth = 1.6;
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+        ctx.lineWidth = 1;
+        ctx.fillStyle = ink;
+        ctx.font = "11px 'Microsoft YaHei', sans-serif";
+        ctx.textAlign = "right";
+        ctx.fillText("0", padL - 6, y0 + 4);
       }
 
       const xy = points.map((p, i) => ({
