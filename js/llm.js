@@ -166,15 +166,21 @@ window.CycleLLM = (function () {
     return lang === "zh" || lang === "zh-TW" || lang === "zh-Hans" || lang === "zh-Hant";
   }
 
+  function mdHint(lang) {
+    return isZh(lang)
+      ? "用 Markdown 排版（标题、**加粗**、列表等），结构清晰可读；不要输出思考过程。"
+      : "Format with Markdown (headings, **bold**, lists). Keep it scannable. No chain-of-thought.";
+  }
+
   function colloquialSystem(lang, kind) {
     if (kind === "news") {
       return isZh(lang)
-        ? "你是宏观市场分析员。根据新闻判断可能受影响的行业或板块（如银行、地产、科技、能源、消费、出口等），说明为什么；用大白话分三段：市场含义、可能受益板块、可能承压板块。不要复述标题，不要喊买卖。"
-        : "You are a macro desk analyst. Infer which industries/sectors may be affected and why. Reply in 3 plain parts: market implication, sectors that may benefit, sectors that may struggle. Do not restate the headline. No trade calls.";
+        ? `你是宏观市场分析员。根据新闻判断可能受影响的行业或板块（如银行、地产、科技、能源、消费、出口等），说明为什么。用 Markdown 分三段：### 市场含义 / ### 可能受益 / ### 可能承压。可加粗关键词、用列表。不要复述标题，不要喊买卖。${mdHint(lang)}`
+        : `You are a macro desk analyst. Infer which industries/sectors may be affected and why. Use Markdown with three sections: ### Implication / ### May benefit / ### May struggle. Bold key terms and use lists. Do not restate the headline. No trade calls. ${mdHint(lang)}`;
     }
     return isZh(lang)
-      ? "你是宏观市场分析员。根据给出的数据判断当前市场处于什么状态（如偏紧/偏松、风险偏好高低、通胀压力等），用大白话分三段：市场状态判断、谁可能更舒服、谁可能更难受。不要把数字复述一遍当分析，不要喊买卖，不要输出思考过程。"
-      : "You are a macro desk analyst. Infer the market regime from the numbers (tight/loose, risk appetite, inflation pressure). Reply in 3 plain parts: regime call, who may benefit, who may struggle. Do not recite the input numbers. No trade calls. No chain-of-thought.";
+      ? `你是宏观市场分析员。根据给出的数据判断当前市场状态（偏紧/偏松、风险偏好、通胀压力等）。用 Markdown 分三段：### 市场状态判断 / ### 谁可能更舒服 / ### 谁可能更难受。可加粗关键词、用列表。不要把数字复述一遍当分析，不要喊买卖。${mdHint(lang)}`
+      : `You are a macro desk analyst. Infer the market regime (tight/loose, risk appetite, inflation pressure). Use Markdown with three sections: ### Regime / ### Who may benefit / ### Who may struggle. Bold key terms and use lists. Do not recite input numbers. No trade calls. ${mdHint(lang)}`;
   }
 
   function fallback(kind, payload, lang) {
@@ -194,22 +200,22 @@ window.CycleLLM = (function () {
 
     if (kind === "macro") {
       return zh
-        ? `市场状态：利率在 ${rate}% 附近、物价相关约 ${cpi}%，更像“政策边走边看、风险偏好不高不低”的过渡市。\n可能更舒服：现金流稳、负债轻的防御与高股息方向。\n可能更难受：高杠杆成长、估值已经很贵的题材更敏感。`
-        : `Regime: rates near ${rate}%, prices near ${cpi}% — a wait-and-see market with middling risk appetite.\nMay benefit: steady cashflow, lighter leverage, defensives.\nMay struggle: highly levered growth and rich valuations.`;
+        ? `### 市场状态判断\n利率在 **${rate}%** 附近、物价相关约 **${cpi}%**，更像“政策边走边看、风险偏好不高不低”的过渡市。\n\n### 谁可能更舒服\n- 现金流稳、负债轻的防御\n- 高股息方向\n\n### 谁可能更难受\n- 高杠杆成长\n- 估值已经很贵的题材`
+        : `### Regime\nRates near **${rate}%**, prices near **${cpi}%** — wait-and-see with middling risk appetite.\n\n### Who may benefit\n- Steady cashflow, lighter leverage\n- Defensives / dividends\n\n### Who may struggle\n- Highly levered growth\n- Rich valuations`;
     }
     if (kind === "news") {
       return zh
-        ? `市场含义：这条快讯更可能先扰动“利率预期/风险偏好”，再传导到板块。\n可能受益：防御、红利、现金流稳的行业往往更稳。\n可能承压：拥挤的高估值成长、利率敏感板块更容易晃。`
-        : `Implication: this flash may first move rate expectations / risk appetite.\nMay benefit: defensives, dividends, steady-cashflow sectors.\nMay struggle: crowded high-valuation growth and rate-sensitive names.`;
+        ? `### 市场含义\n这条快讯更可能先扰动 **利率预期 / 风险偏好**，再传导到板块。\n\n### 可能受益\n- 防御、红利\n- 现金流稳的行业\n\n### 可能承压\n- 拥挤的高估值成长\n- 利率敏感板块`
+        : `### Implication\nThis flash may first move **rate expectations / risk appetite**.\n\n### May benefit\n- Defensives, dividends\n- Steady-cashflow sectors\n\n### May struggle\n- Crowded high-valuation growth\n- Rate-sensitive names`;
     }
     if (kind === "wave") {
       return zh
-        ? `现在怎么看：长波大致在 K${payload.waveId} 的${payload.phase}附近（进度约 ${payload.progress}%），更像气候而不是天气预报。\n谁可能舒服：能熬周期、资产负债表健康的一方。\n谁可能难受：杠杆高、叙事过热的方向更容易被出清。`
-        : `Takeaway: around K${payload.waveId} ${payload.phase} (~${payload.progress}%) — climate, not a trade call.\nMay benefit: strong balance sheets.\nMay struggle: high leverage / crowded narratives.`;
+        ? `### 现在怎么看\n长波大致在 **K${payload.waveId} · ${payload.phase}** 附近（进度约 **${payload.progress}%**），更像气候而不是天气预报。\n\n### 谁可能舒服\n- 能熬周期、资产负债表健康的一方\n\n### 谁可能难受\n- 杠杆高、叙事过热的方向`
+        : `### Takeaway\nAround **K${payload.waveId} · ${payload.phase}** (~**${payload.progress}%**) — climate, not a trade call.\n\n### May benefit\n- Strong balance sheets\n\n### May struggle\n- High leverage / crowded narratives`;
     }
     return zh
-      ? `现在怎么看：关注公布值相对期望偏强还是偏弱。\n谁可能舒服：若偏弱且政策更松，成长和利率敏感方向可能松口气。\n谁可能难受：若偏强，对利率敏感的资产可能更紧张。`
-      : `Takeaway: compare actual vs forecast.\nMay benefit if soft+dovish: growth/rate-sensitive.\nMay struggle if hot: rate-sensitive assets.`;
+      ? `### 现在怎么看\n关注公布值相对期望偏强还是偏弱。\n\n### 谁可能舒服\n- 若偏弱且政策更松：成长和利率敏感方向可能松口气\n\n### 谁可能难受\n- 若偏强：对利率敏感的资产可能更紧张`
+      : `### Takeaway\nCompare actual vs forecast.\n\n### May benefit\n- If soft + dovish: growth / rate-sensitive\n\n### May struggle\n- If hot: rate-sensitive assets`;
   }
 
   function stripThinking(text) {

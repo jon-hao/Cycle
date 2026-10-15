@@ -1156,16 +1156,67 @@ button,
   touch-action: none;
 }
 
-.ai-box {
+.ai-box,
+.agent-msg.assistant {
   white-space: normal;
+}
+
+.ai-box {
   background: var(--bg);
   border: 1px solid var(--line);
   border-radius: 8px;
-  padding: 12px;
+  padding: 12px 14px;
   margin-top: 10px;
   font-size: 0.9rem;
   line-height: 1.55;
   font-family: var(--font);
+}
+
+.ai-box .md-p,
+.agent-msg .md-p {
+  margin: 0 0 0.65em;
+}
+
+.ai-box .md-p:last-child,
+.agent-msg .md-p:last-child {
+  margin-bottom: 0;
+}
+
+.ai-box .md-h1,
+.ai-box .md-h2,
+.ai-box .md-h3,
+.agent-msg .md-h1,
+.agent-msg .md-h2,
+.agent-msg .md-h3 {
+  font-weight: 700;
+  color: var(--ink);
+  margin: 0.75em 0 0.35em;
+  line-height: 1.35;
+}
+
+.ai-box .md-h1:first-child,
+.ai-box .md-h2:first-child,
+.ai-box .md-h3:first-child,
+.agent-msg .md-h1:first-child,
+.agent-msg .md-h2:first-child,
+.agent-msg .md-h3:first-child {
+  margin-top: 0;
+}
+
+.ai-box .md-h1,
+.agent-msg .md-h1 {
+  font-size: 1.15rem;
+}
+
+.ai-box .md-h2,
+.agent-msg .md-h2 {
+  font-size: 1.05rem;
+}
+
+.ai-box .md-h3,
+.agent-msg .md-h3 {
+  font-size: 0.98rem;
+  color: var(--brand);
 }
 
 .ai-box strong,
@@ -1188,12 +1239,59 @@ button,
   background: color-mix(in srgb, var(--line) 55%, transparent);
 }
 
-.ai-box .md-h2,
-.ai-box .md-h3,
-.agent-msg .md-h2,
-.agent-msg .md-h3 {
-  font-weight: 700;
-  margin: 0.35em 0 0.15em;
+.ai-box .md-pre,
+.agent-msg .md-pre {
+  margin: 0.5em 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  overflow: auto;
+  background: color-mix(in srgb, var(--ink) 6%, var(--bg));
+  border: 1px solid var(--line);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.ai-box .md-pre code,
+.agent-msg .md-pre code {
+  padding: 0;
+  background: transparent;
+  white-space: pre;
+}
+
+.ai-box .md-list,
+.agent-msg .md-list {
+  margin: 0.35em 0 0.75em;
+  padding-left: 1.25em;
+}
+
+.ai-box .md-list li,
+.agent-msg .md-list li {
+  margin: 0.2em 0;
+}
+
+.ai-box .md-quote,
+.agent-msg .md-quote {
+  margin: 0.5em 0;
+  padding: 6px 12px;
+  border-left: 3px solid var(--brand);
+  color: var(--muted);
+  background: color-mix(in srgb, var(--brand) 6%, transparent);
+  border-radius: 0 6px 6px 0;
+}
+
+.ai-box .md-hr,
+.agent-msg .md-hr {
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: 0.85em 0;
+}
+
+.ai-box a,
+.agent-msg a {
+  color: var(--accent-2);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .kv {
