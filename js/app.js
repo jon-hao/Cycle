@@ -19,6 +19,8 @@ window.CycleUI = {
   },
   closeModal() {
     const modal = document.getElementById("modal");
+    const ae = document.activeElement;
+    if (ae && modal.contains(ae) && typeof ae.blur === "function") ae.blur();
     modal.classList.remove("open");
     modal.setAttribute("aria-hidden", "true");
     document.documentElement.classList.remove("modal-open");

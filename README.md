@@ -31,8 +31,8 @@ ollama pull llama3.2
 | 美国利率 / CPI / PPI | [MacroRadar](https://www.macroradar.io) |
 | 下次 FOMC / 日历 / 美股假日 | [FinanceCalendar](https://www.financecalendar.com) + [PipAtlas](https://pipatlas.com) |
 | 恐慌贪婪 | [fearandgreedgraph.com](https://fearandgreedgraph.com) |
-| 中国 / 全球通胀 | [IMF DataMapper PCPIPCH](https://www.imf.org/external/datamapper) |
-| 重要新闻 | 金十 important via [RSSHub](https://rsshub.rssforever.com/jin10/important) |
+| 中国 / 全球通胀 | [World Bank](https://api.worldbank.org) `FP.CPI.TOTL.ZG`（浏览器 CORS） |
+| 重要新闻 | 金十 important RSS → [rss2json](https://api.rss2json.com)（绕过 RSSHub 非法 CORS）；失败回退 Google News RSS |
 
 拿不到的序列统一显示「数据缺失 / Unavailable」。中国月度 LPR / PPI 暂无稳定浏览器 CORS 源，故可能缺失。
 
