@@ -1,130 +1,153 @@
+/**
+ * 浏览器端大模型（WebLLM + Qwen），无需本机 Ollama。
+ * 首次解读时懒加载；无 WebGPU 时回退通俗简版。
+ */
 window.CycleLLM = (function () {
-  const DEFAULTS = {
-    baseUrl: "http://localhost:11434",
-    model: "llama3.2",
-    timeoutMs: 60000,
-    /** Pages 上默认不探测本机，避免控制台刷 ERR_CONNECTION_REFUSED */
-    tryRemote: false,
-  };
+  const MODEL_CANDIDATES = [
+    "Qwen3-0.6B-q4f16_1-MLC",
+    "Qwen2.5-0.5B-Instruct-q4f16_1-MLC",
+    "Llama-3.2-1B-Instruct-q4f16_1-MLC",
+  ];
 
-  let cache = { ok: false, checkedAt: 0, models: [], skipped: false };
-  const TTL_OK = 60000;
-  const TTL_FAIL = 30000;
+  let engine = null;
+  let loading = null;
+  let progressText = "";
+  let lastError = "";
 
   function settings() {
     try {
       const raw = localStorage.getItem("cycle-llm");
-      return Object.assign({}, DEFAULTS, raw ? JSON.parse(raw) : {});
+      return raw ? JSON.parse(raw) : {};
     } catch (_) {
-      return Object.assign({}, DEFAULTS);
+      return {};
     }
   }
 
-  /** 仅本机预览，或显式开启 tryRemote 时才连 Ollama（Ollama 无 JSONP） */
-  function shouldProbe() {
-    const h = location.hostname;
-    const local =
-      h === "localhost" ||
-      h === "127.0.0.1" ||
-      h === "[::1]" ||
-      h === "" ||
-      location.protocol === "file:";
-    if (local) return true;
-    return !!settings().tryRemote;
+  function hasWebGPU() {
+    return typeof navigator !== "undefined" && !!navigator.gpu;
   }
 
-  async function ping(force) {
-    if (!shouldProbe()) {
-      cache = { ok: false, checkedAt: Date.now(), models: [], skipped: true };
-      return { ok: false, models: [], skipped: true };
+  async function ensureEngine(onProgress) {
+    if (engine) return engine;
+    if (loading) return loading;
+    if (!hasWebGPU()) {
+      lastError = "no-webgpu";
+      return null;
     }
 
-    const now = Date.now();
-    const ttl = cache.ok ? TTL_OK : TTL_FAIL;
-    if (!force && cache.checkedAt && now - cache.checkedAt < ttl) {
-      return { ok: cache.ok, models: cache.models, cached: true };
-    }
-    const cfg = settings();
-    try {
-      const ctrl = new AbortController();
-      const t = setTimeout(() => ctrl.abort(), 1500);
-      const res = await fetch(cfg.baseUrl + "/api/tags", { signal: ctrl.signal });
-      clearTimeout(t);
-      if (!res.ok) {
-        cache = { ok: false, checkedAt: now, models: [], skipped: false };
-        return { ok: false, models: [] };
+    loading = (async () => {
+      try {
+        const webllm = await import("https://esm.run/@mlc-ai/web-llm@0.2.79");
+        const preferred = settings().model;
+        const list = preferred
+          ? [preferred, ...MODEL_CANDIDATES]
+          : MODEL_CANDIDATES.slice();
+        let lastErr = null;
+        for (const modelId of list) {
+          try {
+            progressText = modelId;
+            if (onProgress) onProgress(0, modelId);
+            engine = await webllm.CreateMLCEngine(modelId, {
+              initProgressCallback: (p) => {
+                progressText = p.text || modelId;
+                if (onProgress) onProgress(p.progress || 0, progressText);
+              },
+            });
+            lastError = "";
+            return engine;
+          } catch (e) {
+            lastErr = e;
+            engine = null;
+          }
+        }
+        lastError = String(lastErr && lastErr.message ? lastErr.message : lastErr);
+        return null;
+      } catch (e) {
+        lastError = String(e && e.message ? e.message : e);
+        return null;
+      } finally {
+        loading = null;
       }
-      const data = await res.json();
-      const models = (data.models || []).map((m) => m.name);
-      cache = { ok: true, checkedAt: now, models, skipped: false };
-      return { ok: true, models };
-    } catch (_) {
-      cache = { ok: false, checkedAt: now, models: [], skipped: false };
-      return { ok: false, models: [] };
-    }
-  }
+    })();
 
-  async function chat(system, user) {
-    const cfg = settings();
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), cfg.timeoutMs);
-    try {
-      const res = await fetch(cfg.baseUrl + "/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: cfg.model,
-          stream: false,
-          messages: [
-            { role: "system", content: system },
-            { role: "user", content: user },
-          ],
-        }),
-        signal: ctrl.signal,
-      });
-      clearTimeout(timer);
-      if (!res.ok) throw new Error("HTTP " + res.status);
-      const data = await res.json();
-      return {
-        ok: true,
-        text: (data.message && data.message.content) || "",
-      };
-    } catch (err) {
-      clearTimeout(timer);
-      cache = { ok: false, checkedAt: Date.now(), models: [], skipped: false };
-      return { ok: false, error: String(err && err.message ? err.message : err) };
-    }
+    return loading;
   }
 
   function colloquialSystem(lang) {
     return lang === "zh"
-      ? "你是接地气的宏观解说员。用大白话讲清楚，少用术语；必须分三小段：现在怎么看、谁可能舒服、谁可能难受。不要编造没给的数字，不要喊买卖口号。"
-      : "You are a plain-spoken macro guide. Use everyday English, light jargon. Reply in 3 short parts: the takeaway, who may benefit, who may struggle. Do not invent numbers. No trade calls.";
+      ? "你是接地气的宏观解说员。用大白话讲清楚，少用术语；必须分三小段：现在怎么看、谁可能舒服、谁可能难受。不要编造没给的数字，不要喊买卖口号。不要输出思考过程。"
+      : "You are a plain-spoken macro guide. Everyday English, light jargon. Reply in 3 short parts: the takeaway, who may benefit, who may struggle. Do not invent numbers. No trade calls. No chain-of-thought.";
   }
 
   function fallback(kind, payload, lang) {
     const zh = lang === "zh";
+    const rate =
+      payload.rate == null || Number.isNaN(Number(payload.rate))
+        ? zh
+          ? "未知"
+          : "n/a"
+        : Number(payload.rate).toFixed(2);
+    const cpi =
+      payload.cpi == null || Number.isNaN(Number(payload.cpi))
+        ? zh
+          ? "未知"
+          : "n/a"
+        : Number(payload.cpi).toFixed(1);
+
     if (kind === "macro") {
       return zh
-        ? `${window.t("aiOffline")}\n\n现在怎么看：利率大约 ${payload.rate ?? "未知"}%，物价相关读数大约 ${payload.cpi ?? "未知"}%。整体更像“边走边看”。\n谁可能舒服：现金流稳、负债不重的公司更抗造。\n谁可能难受：靠借钱扩张、估值已经很贵的方向更敏感。`
-        : `${window.t("aiOffline")}\n\nTakeaway: rate ~${payload.rate ?? "n/a"}%, CPI-like ~${payload.cpi ?? "n/a"}. Wait-and-see mood.\nMay benefit: steady cashflow, lighter leverage.\nMay struggle: highly levered, rich-valuation stories.`;
+        ? `现在怎么看：利率大约 ${rate}%，物价相关读数大约 ${cpi}%。整体更像“边走边看”。\n谁可能舒服：现金流稳、负债不重的公司更抗造。\n谁可能难受：靠借钱扩张、估值已经很贵的方向更敏感。`
+        : `Takeaway: rate ~${rate}%, CPI-like ~${cpi}%. Wait-and-see mood.\nMay benefit: steady cashflow, lighter leverage.\nMay struggle: highly levered, rich-valuation stories.`;
     }
     if (kind === "news") {
       return zh
-        ? `${window.t("aiOffline")}\n\n现在怎么看：这是一条重要快讯，先看它会不会改变“利率/风险偏好”两件事。\n谁可能舒服：防御和红利类往往更稳。\n谁可能难受：拥挤的高估值交易更容易晃。`
-        : `${window.t("aiOffline")}\n\nTakeaway: an important flash — watch rates and risk appetite.\nMay benefit: defensives/dividends.\nMay struggle: crowded high-valuation trades.`;
+        ? `现在怎么看：这是一条重要快讯，先看它会不会改变“利率/风险偏好”两件事。\n谁可能舒服：防御和红利类往往更稳。\n谁可能难受：拥挤的高估值交易更容易晃。`
+        : `Takeaway: an important flash — watch rates and risk appetite.\nMay benefit: defensives/dividends.\nMay struggle: crowded high-valuation trades.`;
     }
     if (kind === "wave") {
       return zh
-        ? `${window.t("aiOffline")}\n\n现在怎么看：长波大致在 K${payload.waveId} 的${payload.phase}附近（进度约 ${payload.progress}%），更像气候而不是天气预报。\n谁可能舒服：能熬周期、现金和资产负债表健康的一方。\n谁可能难受：杠杆高、叙事过热的方向更容易被出清。`
-        : `${window.t("aiOffline")}\n\nTakeaway: around K${payload.waveId} ${payload.phase} (~${payload.progress}%) — climate, not a trade call.\nMay benefit: strong balance sheets.\nMay struggle: high leverage / crowded narratives.`;
+        ? `现在怎么看：长波大致在 K${payload.waveId} 的${payload.phase}附近（进度约 ${payload.progress}%），更像气候而不是天气预报。\n谁可能舒服：能熬周期、资产负债表健康的一方。\n谁可能难受：杠杆高、叙事过热的方向更容易被出清。`
+        : `Takeaway: around K${payload.waveId} ${payload.phase} (~${payload.progress}%) — climate, not a trade call.\nMay benefit: strong balance sheets.\nMay struggle: high leverage / crowded narratives.`;
     }
     return zh
-      ? `${window.t("aiOffline")}\n\n现在怎么看：关注公布值相对期望偏强还是偏弱。\n谁可能舒服：若偏弱且政策更松，成长和利率敏感方向可能松口气。\n谁可能难受：若偏强，对利率敏感的资产可能更紧张。`
-      : `${window.t("aiOffline")}\n\nTakeaway: compare actual vs forecast.\nMay benefit if soft+dovish: growth/rate-sensitive.\nMay struggle if hot: rate-sensitive assets.`;
+      ? `现在怎么看：关注公布值相对期望偏强还是偏弱。\n谁可能舒服：若偏弱且政策更松，成长和利率敏感方向可能松口气。\n谁可能难受：若偏强，对利率敏感的资产可能更紧张。`
+      : `Takeaway: compare actual vs forecast.\nMay benefit if soft+dovish: growth/rate-sensitive.\nMay struggle if hot: rate-sensitive assets.`;
   }
 
-  async function interpret(kind, payload, lang) {
+  function stripThinking(text) {
+    return String(text || "")
+      .replace(/<think>[\s\S]*?<\/think>/gi, "")
+      .replace(/^[\s\S]*?<\/think>/i, "")
+      .trim();
+  }
+
+  async function chat(system, user, onProgress) {
+    const eng = await ensureEngine(onProgress);
+    if (!eng) return { ok: false, error: lastError || "engine" };
+    try {
+      const reply = await eng.chat.completions.create({
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: user },
+        ],
+        temperature: 0.6,
+        max_tokens: 420,
+        extra_body: { enable_thinking: false },
+      });
+      const text = stripThinking(
+        (reply.choices &&
+          reply.choices[0] &&
+          reply.choices[0].message &&
+          reply.choices[0].message.content) ||
+          ""
+      );
+      return { ok: !!text, text };
+    } catch (e) {
+      return { ok: false, error: String(e && e.message ? e.message : e) };
+    }
+  }
+
+  async function interpret(kind, payload, lang, onProgress) {
     const system = colloquialSystem(lang);
     let user = "";
     if (kind === "macro") {
@@ -140,8 +163,8 @@ window.CycleLLM = (function () {
     } else if (kind === "wave") {
       user =
         lang === "zh"
-          ? `康波当前位置：K${payload.waveId}，阶段=${payload.phase}，进度=${payload.progress}%。用大白话讲我们大概处在什么气候、往后更可能偏向什么。`
-          : `Kondratiev now: K${payload.waveId}, phase=${payload.phase}, progress=${payload.progress}%. Explain the climate in plain words.`;
+          ? `康波当前位置：K${payload.waveId}，阶段=${payload.phase}，进度=${payload.progress}%。用大白话讲气候。`
+          : `Kondratiev now: K${payload.waveId}, phase=${payload.phase}, progress=${payload.progress}%. Plain words.`;
     } else {
       user =
         lang === "zh"
@@ -149,16 +172,38 @@ window.CycleLLM = (function () {
           : `Release: ${payload.title}; forecast=${payload.forecast}; actual=${payload.actual}; previous=${payload.previous}. Plain language.`;
     }
 
-    const alive = await ping(false);
-    if (!alive.ok) {
-      return { ok: false, text: fallback(kind, payload, lang), source: "fallback" };
-    }
-
-    const live = await chat(system, user);
+    const live = await chat(system, user, onProgress);
     if (live.ok && live.text.trim())
-      return { ok: true, text: live.text.trim(), source: "ollama" };
-    return { ok: false, text: fallback(kind, payload, lang), source: "fallback" };
+      return { ok: true, text: live.text.trim(), source: "webllm" };
+    return {
+      ok: false,
+      text: fallback(kind, payload, lang),
+      source: "fallback",
+      error: live.error || lastError,
+    };
   }
 
-  return { settings, ping, interpret, shouldProbe };
+  /** 预热：页面空闲时开始下模型（不阻塞 UI） */
+  function warmup() {
+    if (!hasWebGPU()) return;
+    const run = () => {
+      ensureEngine().catch(() => {});
+    };
+    if ("requestIdleCallback" in window) {
+      requestIdleCallback(run, { timeout: 4000 });
+    } else {
+      setTimeout(run, 1200);
+    }
+  }
+
+  function ping() {
+    return Promise.resolve({
+      ok: !!engine || hasWebGPU(),
+      webgpu: hasWebGPU(),
+      ready: !!engine,
+      progress: progressText,
+    });
+  }
+
+  return { settings, ping, interpret, warmup, ensureEngine, hasWebGPU };
 })();

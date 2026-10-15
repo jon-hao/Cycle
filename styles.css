@@ -726,3 +726,162 @@ input {
     font-size: 1.2rem;
   }
 }
+
+/* —— 卡片：标题 / 日期 / 内容 分色 —— */
+.card-title {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.card-date {
+  color: var(--accent-2);
+  font-weight: 600;
+}
+
+.card-content,
+.card-label {
+  color: var(--muted);
+}
+
+.card-value {
+  color: var(--brand);
+  font-weight: 700;
+}
+
+.news-card .card-title,
+.cal-title.card-title {
+  color: var(--ink);
+}
+
+.news-card .card-content {
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+/* —— 国旗选择器 —— */
+.sq-label,
+.sq-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.flag {
+  font-size: 1.05rem;
+  line-height: 1;
+}
+
+/* —— 康波：手机仅圆盘；PC 展开侧栏 —— */
+.k-tap-hint {
+  display: none;
+  text-align: center;
+  margin: 4px 0 0;
+  font-size: 0.78rem;
+}
+
+.k-meta-pc {
+  display: none;
+}
+
+@media (max-width: 859px) {
+  .k-tap-hint {
+    display: block;
+  }
+}
+
+@media (min-width: 860px) {
+  .k-meta-pc {
+    display: block;
+  }
+
+  .k-tap-hint {
+    display: none;
+  }
+}
+
+.k-meta-block {
+  display: grid;
+  gap: 8px;
+}
+
+.kv-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 0.95rem;
+}
+
+/* —— AI 折叠 —— */
+.ai-fold {
+  margin-top: 10px;
+}
+
+.ai-toggle {
+  width: 100%;
+  text-align: left;
+  border: 1px dashed var(--line);
+  background: color-mix(in srgb, var(--brand) 8%, transparent);
+  color: var(--brand);
+  border-radius: 4px;
+  padding: 10px 12px;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.ai-toggle[aria-expanded="true"] {
+  border-style: solid;
+  margin-bottom: 8px;
+}
+
+/* —— 恐惧贪婪仪表 —— */
+.fg-card {
+  cursor: pointer;
+  text-align: left;
+  border: 1px solid var(--line);
+  background: var(--bg-elev);
+  border-radius: 8px;
+  padding: 14px;
+  color: inherit;
+}
+
+.fg-gauge {
+  width: 100%;
+  max-width: 340px;
+  height: auto;
+  display: block;
+  margin: 4px auto 0;
+}
+
+.next-meet {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.term-tip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-left: 6px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  font-size: 0.7rem;
+  color: var(--accent-2);
+  vertical-align: middle;
+  cursor: help;
+}
+
+.term-note {
+  display: block;
+  margin-top: 6px;
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.footnote {
+  display: none;
+}

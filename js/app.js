@@ -41,14 +41,20 @@ window.CycleSelect = (function () {
     list.setAttribute("role", "listbox");
     list.hidden = true;
 
+    function labelHtml(opt) {
+      if (!opt) return "";
+      const flag = opt.flag ? `<span class="flag">${opt.flag}</span>` : "";
+      return `${flag}<span class="opt-text">${opt.label}</span>`;
+    }
+
     function labelOf(v) {
       const opt = options.find((o) => o.value === v);
-      return opt ? opt.label : v;
+      return labelHtml(opt) || v;
     }
 
     function setValue(v, silent) {
       root.dataset.value = v;
-      btn.innerHTML = `<span>${labelOf(v)}</span><span class="sq-caret" aria-hidden="true"></span>`;
+      btn.innerHTML = `<span class="sq-label">${labelOf(v)}</span><span class="sq-caret" aria-hidden="true"></span>`;
       list.querySelectorAll(".sq-option").forEach((el) => {
         el.classList.toggle("active", el.dataset.value === v);
       });
@@ -61,7 +67,7 @@ window.CycleSelect = (function () {
       item.className = "sq-option";
       item.dataset.value = opt.value;
       item.setAttribute("role", "option");
-      item.textContent = opt.label;
+      item.innerHTML = labelHtml(opt);
       item.addEventListener("click", (e) => {
         e.stopPropagation();
         list.hidden = true;
@@ -100,7 +106,7 @@ window.CycleSelect = (function () {
           item.className = "sq-option";
           item.dataset.value = opt.value;
           item.setAttribute("role", "option");
-          item.textContent = opt.label;
+          item.innerHTML = labelHtml(opt);
           item.addEventListener("click", (e) => {
             e.stopPropagation();
             list.hidden = true;
@@ -140,9 +146,9 @@ window.CycleSelect = (function () {
 
   function countryOptions() {
     return [
-      { value: "US", label: window.t("countryUS") },
-      { value: "CN", label: window.t("countryCN") },
-      { value: "GLOBAL", label: window.t("countryGLOBAL") },
+      { value: "US", label: window.t("countryUS"), flag: "🇺🇸" },
+      { value: "CN", label: window.t("countryCN"), flag: "🇨🇳" },
+      { value: "GLOBAL", label: window.t("countryGLOBAL"), flag: "🌍" },
     ];
   }
 
@@ -273,8 +279,8 @@ window.CycleSelect = (function () {
   }
 
   async function init() {
-    // 仅本机预览时预热 Ollama；GitHub Pages 上不探测，避免刷红控制台
-    if (window.CycleLLM.shouldProbe()) window.CycleLLM.ping();
+    // 空闲时预热浏览器端 Qwen（WebLLM）
+    if (window.CycleLLM && window.CycleLLM.warmup) window.CycleLLM.warmup();
 
     applyTheme();
     wire();

@@ -24,12 +24,16 @@ window.CyclePages.calendar = (function () {
   function locale() {
     return window.CycleState.lang === "zh" ? "zh-CN" : "en-US";
   }
+  function trTitle(title) {
+    return window.CycleCalI18n.translateTitle(title, window.CycleState.lang);
+  }
 
   function icsForEvent(e) {
     const start = new Date(e.datetime);
     const end = new Date(start.getTime() + 30 * 60 * 1000);
     const stamp = (d) =>
       d.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+    const title = trTitle(e.title);
     const desc = `${window.t("forecast")}: ${e.forecast}; ${window.t("actual")}: ${e.actual ?? "—"}; ${window.t("previous")}: ${e.previous}`;
     return [
       "BEGIN:VCALENDAR",
@@ -40,7 +44,7 @@ window.CyclePages.calendar = (function () {
       "DTSTAMP:" + stamp(new Date()),
       "DTSTART:" + stamp(start),
       "DTEND:" + stamp(end),
-      "SUMMARY:" + String(e.title).replace(/\n/g, " "),
+      "SUMMARY:" + String(title).replace(/\n/g, " "),
       "DESCRIPTION:" + desc.replace(/\n/g, "\\n"),
       "END:VEVENT",
       "END:VCALENDAR",
@@ -71,35 +75,29 @@ window.CyclePages.calendar = (function () {
         : e.tag === "witching"
           ? window.t("witching")
           : window.t("country" + (e.country || "GLOBAL"));
+    const title = trTitle(e.title);
 
     window.CycleUI.openModal(`
-      <div class="sheet-head"><h2>${escapeHtml(e.title)}</h2><button type="button" class="icon-btn" data-close>×</button></div>
-      <p class="event-line"><strong>${time}</strong> · ${tag}</p>
+      <div class="sheet-head"><h2 class="card-title">${escapeHtml(title)}</h2><button type="button" class="icon-btn" data-close>×</button></div>
+      <p class="event-line"><span class="card-date">${time}</span> · <span class="card-label">${tag}</span></p>
       <ul class="kv">
-        <li><span>${window.t("forecast")}</span><strong>${escapeHtml(String(e.forecast))}</strong></li>
-        <li><span>${window.t("actual")}</span><strong>${escapeHtml(String(e.actual ?? "—"))}</strong></li>
-        <li><span>${window.t("previous")}</span><strong>${escapeHtml(String(e.previous))}</strong></li>
+        <li><span class="card-label">${window.t("forecast")}</span><strong class="card-value">${escapeHtml(String(e.forecast))}</strong></li>
+        <li><span class="card-label">${window.t("actual")}</span><strong class="card-value">${escapeHtml(String(e.actual ?? "—"))}</strong></li>
+        <li><span class="card-label">${window.t("previous")}</span><strong class="card-value">${escapeHtml(String(e.previous))}</strong></li>
       </ul>
       <button type="button" class="btn" id="subEvent">${window.t("subscribe")}</button>
-      <pre class="ai-box" id="aiEventOut"></pre>
+      <div class="ai-host" id="aiEventHost"></div>
     `);
     document.getElementById("subEvent").addEventListener("click", () => {
       downloadIcs(e);
       document.getElementById("subEvent").textContent = window.t("subscribed");
     });
-    const out = document.getElementById("aiEventOut");
-    out.textContent = window.t("askAI");
-    const res = await window.CycleLLM.interpret(
-      "event",
-      {
-        title: e.title,
-        forecast: e.forecast,
-        actual: e.actual,
-        previous: e.previous,
-      },
-      window.CycleState.lang
-    );
-    out.textContent = res.text;
+    window.CycleAIUI.mount(document.getElementById("aiEventHost"), "event", {
+      title,
+      forecast: e.forecast,
+      actual: e.actual,
+      previous: e.previous,
+    });
   }
 
   function escapeHtml(s) {
@@ -114,11 +112,12 @@ window.CyclePages.calendar = (function () {
       hour: "2-digit",
       minute: "2-digit",
     });
+    const title = trTitle(e.title);
     return `<div class="cal-item" data-id="${encodeURIComponent(e.id)}">
       <div class="cal-item-main">
-        <span class="cal-time">${time}</span>
-        <span class="cal-title">${escapeHtml(e.title)}</span>
-        <span class="cal-nums">${window.t("forecast")} ${escapeHtml(String(e.forecast))} · ${window.t("actual")} ${escapeHtml(String(e.actual ?? "—"))}</span>
+        <span class="cal-time card-date">${time}</span>
+        <span class="cal-title card-title">${escapeHtml(title)}</span>
+        <span class="cal-nums card-content">${window.t("forecast")} ${escapeHtml(String(e.forecast))} · ${window.t("actual")} ${escapeHtml(String(e.actual ?? "—"))}</span>
       </div>
       <button type="button" class="btn tiny sub-btn" data-sub="${encodeURIComponent(e.id)}">${window.t("subscribe")}</button>
     </div>`;
@@ -161,10 +160,9 @@ window.CyclePages.calendar = (function () {
           window.CycleState.country
         )) || [];
 
-      // 美国四巫日
       if (window.CycleState.country === "US") {
         const year = cursor.getFullYear();
-        window.CycleAPI.witchingDates(year).forEach((d, i) => {
+        window.CycleAPI.witchingDates(year).forEach((d) => {
           const dt = new Date(d + "T18:00:00Z");
           if (dt >= from && dt < to) {
             events.push({
@@ -182,8 +180,6 @@ window.CyclePages.calendar = (function () {
         });
       }
 
-      // 全球不展示节假日：已在 API 层仅 US holidays；CN holidays 暂无稳定源 → 不硬编码
-
       events.sort((a, b) => new Date(a.datetime) - new Date(b.datetime));
       const byId = Object.fromEntries(events.map((e) => [String(e.id), e]));
 
@@ -196,7 +192,7 @@ window.CyclePages.calendar = (function () {
             sameDay(new Date(e.datetime), dayDate)
           );
           days.push(`<div class="w-col ${sameDay(dayDate, new Date()) ? "today" : ""}">
-            <div class="w-head">${dayDate.toLocaleDateString(locale(), {
+            <div class="w-head card-date">${dayDate.toLocaleDateString(locale(), {
               weekday: "short",
               month: "numeric",
               day: "numeric",
@@ -208,10 +204,14 @@ window.CyclePages.calendar = (function () {
                       (e) =>
                         `<button type="button" class="w-item" data-id="${encodeURIComponent(
                           e.id
-                        )}">${new Date(e.datetime).toLocaleTimeString(locale(), {
+                        )}"><span class="card-date">${new Date(
+                          e.datetime
+                        ).toLocaleTimeString(locale(), {
                           hour: "2-digit",
                           minute: "2-digit",
-                        })} ${escapeHtml(e.title)}</button>`
+                        })}</span> <span class="card-title">${escapeHtml(
+                          trTitle(e.title)
+                        )}</span></button>`
                     )
                     .join("")
                 : `<div class="muted tiny">${window.t("noEvents")}</div>`
@@ -234,8 +234,9 @@ window.CyclePages.calendar = (function () {
             </div>
             <div class="cal-nav">
               <button type="button" class="icon-btn" id="prev">‹</button>
-              <strong>${heading}</strong>
+              <strong class="card-title">${heading}</strong>
               <button type="button" class="icon-btn" id="next">›</button>
+              <button type="button" class="btn tiny" id="todayBtn">${window.t("today")}</button>
             </div>
           </div>
           ${body}
@@ -254,6 +255,10 @@ window.CyclePages.calendar = (function () {
       });
       root.querySelector("#next").addEventListener("click", () => {
         cursor = view === "day" ? addDays(cursor, 1) : addDays(cursor, 7);
+        paint();
+      });
+      root.querySelector("#todayBtn").addEventListener("click", () => {
+        cursor = new Date();
         paint();
       });
       root.querySelectorAll("[data-id]").forEach((el) => {

@@ -20,15 +20,9 @@ ollama pull llama3.2
 # 或 qwen2.5 等：localStorage.cycle-llm = {"model":"qwen2.5"}
 ```
 
-本机 `http://localhost` 预览时会自动连 Ollama；**GitHub Pages 上默认不探测本机**（避免控制台报错），直接显示通俗简版。若坚持在 Pages 上连本机 Ollama：
+AI 解读默认使用浏览器端 **WebLLM + Qwen**（需 WebGPU；首次点击「查看AI分析」时加载）。无 WebGPU 时回退通俗简版。
 
-```js
-localStorage.setItem("cycle-llm", JSON.stringify({ tryRemote: true, model: "llama3.2" }))
-```
-
-并设置 `OLLAMA_ORIGINS=*`。
-
-跨域数据优先走 **JSONP**（如 World Bank `format=jsonp&prefix=`、rss2json `callback=`），不依赖 CORS。
+跨域数据优先走 **JSONP**（如 World Bank `format=jsonp&prefix=`、rss2json `callback=`）。
 
 ## 数据源（实时，无静态假数据）
 
