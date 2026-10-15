@@ -115,22 +115,6 @@ window.CyclePages.data = (function () {
     URL.revokeObjectURL(a.href);
   }
 
-  function cycleSignalHtml(k) {
-    const nextKey = k.nextPhaseKey || k.phaseKey;
-    const phase = window.CycleKondratiev.phaseLabel(k.phaseKey);
-    const toward = window.CycleKondratiev.phaseLabel(nextKey);
-    return `
-      <div class="k-signal">
-        <div class="k-signal-row"><span class="k-signal-lab">${window.t("kNowPhase")}</span>
-          <span class="pill phase-${k.phaseKey}">${phase}</span></div>
-        <div class="k-signal-row"><span class="k-signal-lab">${window.t("kHeading")}</span>
-          <span>→ ${toward}</span></div>
-        <div class="k-signal-row"><span class="k-signal-lab">${window.t("kPortfolio")}</span>
-          <span>${window.t(k.phaseKey + "Portfolio")}</span></div>
-      </div>
-      <p class="k-signal-foot">${window.t("kPortfolioNote")}</p>`;
-  }
-
   const WAVE_SPANS = [
     { value: "1m", years: 1, grain: "month", labelKey: "span1y" },
     { value: "2m", years: 2, grain: "month", labelKey: "span2y" },
@@ -196,21 +180,6 @@ window.CyclePages.data = (function () {
     const fullSeries =
       window.CycleKondratiev.seriesForMode(mode, k, macro, fg) ||
       window.CycleKondratiev.longWaveSeries(calYear, country);
-    const theme =
-      k.theme ||
-      window.CycleKondratiev.themeText(
-        k.wave,
-        country,
-        window.CycleState.lang
-      );
-    const hint =
-      mode === "realtime"
-        ? window.t("kRealtimeHint")
-        : window.t("kSchematicHint");
-    const scoreLine =
-      mode === "realtime" && k.scores
-        ? `<p class="card-content">growth ${k.scores.growthScore.toFixed(2)} · inflation ${k.scores.inflationScore.toFixed(2)}</p>`
-        : "";
     const savedSpan = localStorage.getItem("cycle-wave-span");
     const spanKey =
       mode === "realtime" && WAVE_SPANS.some((s) => s.value === savedSpan)
@@ -225,10 +194,6 @@ window.CyclePages.data = (function () {
         : "";
     window.CycleUI.openModal(`
       <div class="sheet-head"><h2 class="card-title">${window.t("kondratiev")}</h2><button type="button" class="icon-btn" data-close>×</button></div>
-      ${cycleSignalHtml(k)}
-      <p class="card-content">${theme} · ${window.t(k.phaseKey + "Desc")}</p>
-      ${scoreLine}
-      <p class="k-model-note">${hint}</p>
       ${spanRow}
       <canvas class="chart" id="waveChart" height="220"></canvas>
       <div class="ai-host" id="aiWaveHost"></div>
@@ -602,10 +567,17 @@ window.CyclePages.data = (function () {
       window.CycleCharts.fearGreedGauge(root.querySelector("#fgGauge"), fgVal, trend);
     }
 
+    const nextPhaseKey = k.nextPhaseKey || k.phaseKey;
     const aiPayload = {
       countryLabel: countryLabel(code),
       waveId: k.wave.id,
       phase: window.CycleKondratiev.phaseLabel(k.phaseKey),
+      heading: window.CycleKondratiev.phaseLabel(nextPhaseKey),
+      portfolio: window.t(k.phaseKey + "Portfolio"),
+      theme:
+        k.theme ||
+        window.CycleKondratiev.themeText(k.wave, code, window.CycleState.lang),
+      phaseDesc: window.t(k.phaseKey + "Desc"),
       rate: macro && macro.policyRate,
       inflation: macro && macro.inflation,
       cpi: macro && macro.cpiYoY,

@@ -267,8 +267,8 @@ window.CycleLLM = (function () {
         : `Headline: ${payload.title}\nSummary: ${payload.summary}\nWhich industries/sectors may be affected?`;
     } else if (kind === "wave") {
       user = isZh(lang)
-        ? `康波：K${payload.waveId}，阶段=${payload.phase}，进度=${payload.progress}%。判断当前宏观气候与市场含义，不要只复述阶段名。`
-        : `Kondratiev: K${payload.waveId}, phase=${payload.phase}, progress=${payload.progress}%. Infer climate and market meaning; do not just restate the phase.`;
+        ? `背景（勿逐条复述）：模式=${payload.kMode || "realtime"}；阶段=${payload.phase}；倾向→${payload.heading}；主题=${payload.theme}；${payload.phaseDesc || ""}；growth=${payload.growthScore}；inflation=${payload.inflationScore}；组合提示=${payload.portfolio}。请用通俗话说明：现在处在什么周期、正在往哪走、对组合意味着什么。`
+        : `Background (do not recite): mode=${payload.kMode || "realtime"}; phase=${payload.phase}; heading→${payload.heading}; theme=${payload.theme}; ${payload.phaseDesc || ""}; growth=${payload.growthScore}; inflation=${payload.inflationScore}; portfolio tilt=${payload.portfolio}. Explain in plain language: where we are, where we're heading, and what it means for allocation.`;
     } else {
       user = isZh(lang)
         ? `数据事件：${payload.title}；期望=${payload.forecast}；公布=${payload.actual}；前值=${payload.previous}。判断对市场状态的含义。`
