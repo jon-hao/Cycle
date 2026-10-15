@@ -1,6 +1,6 @@
 /**
- * 实时数据层（浏览器直连公开 CORS API）。
- * 失败统一返回 null / missing，禁止回退静态假数据。
+ * 实时数据层。
+ * 优先 JSONP（无 CORS）；否则 fetch。失败一律 null / 缺失，禁止静态假数据。
  */
 window.CycleAPI = (function () {
   const MR = "https://www.macroradar.io/api/v1";
@@ -8,9 +8,40 @@ window.CycleAPI = (function () {
   const FC = "https://www.financecalendar.com/wp-json/fc/v1";
   const PA = "https://pipatlas.com/api/calendar";
   const WB = "https://api.worldbank.org/v2";
-  // 金十 RSS 直连 CORS 头非法；经 rss2json（Access-Control-Allow-Origin: *）转发
+  // 金十 RSS 直连 CORS 非法；经 rss2json JSONP 转发
   const JIN10_RSS = "https://rsshub.rssforever.com/jin10/important";
   const RSS2JSON = "https://api.rss2json.com/v1/api.json?rss_url=";
+
+  let jsonpSeq = 0;
+
+  /** JSONP：用 script 标签绕过 CORS（需服务端支持 callback/prefix） */
+  function getJSONP(url, opts) {
+    const param = (opts && opts.param) || "callback";
+    const timeout = (opts && opts.timeout) || 12000;
+    return new Promise((resolve) => {
+      const name = "cycleJsonp_" + ++jsonpSeq + "_" + Date.now();
+      let settled = false;
+      const script = document.createElement("script");
+      const finish = (data) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        try {
+          delete window[name];
+        } catch (_) {
+          window[name] = undefined;
+        }
+        if (script.parentNode) script.parentNode.removeChild(script);
+        resolve(data);
+      };
+      window[name] = (data) => finish(data);
+      const sep = url.indexOf("?") >= 0 ? "&" : "?";
+      script.src = url + sep + param + "=" + encodeURIComponent(name);
+      script.onerror = () => finish(null);
+      const timer = setTimeout(() => finish(null), timeout);
+      document.head.appendChild(script);
+    });
+  }
 
   async function getJSON(url, opts) {
     const ctrl = new AbortController();
@@ -54,11 +85,12 @@ window.CycleAPI = (function () {
     return pts.slice(-(limit || 48));
   }
 
-  /** World Bank 年通胀（浏览器 CORS *）；code 如 CHN / USA */
+  /** World Bank 年通胀：官方 JSONP（format=jsonP&prefix=…），不依赖 CORS */
   async function wbInflation(code) {
-    const d = await getJSON(
-      `${WB}/country/${encodeURIComponent(code)}/indicator/FP.CPI.TOTL.ZG?format=json&per_page=60`
-    );
+    const url =
+      `${WB}/country/${encodeURIComponent(code)}/indicator/FP.CPI.TOTL.ZG` +
+      `?format=jsonP&per_page=60`;
+    const d = await getJSONP(url, { param: "prefix", timeout: 15000 });
     if (!Array.isArray(d) || !Array.isArray(d[1])) return null;
     const pts = d[1]
       .filter((r) => r && r.value != null && !Number.isNaN(Number(r.value)))
@@ -233,7 +265,10 @@ window.CycleAPI = (function () {
   }
 
   async function fetchRssViaJson(feedUrl) {
-    const d = await getJSON(RSS2JSON + encodeURIComponent(feedUrl));
+    const url = RSS2JSON + encodeURIComponent(feedUrl);
+    // 先 CORS fetch，失败再用 JSONP callback
+    let d = await getJSON(url);
+    if (!d) d = await getJSONP(url, { param: "callback" });
     if (!d || d.status !== "ok" || !Array.isArray(d.items)) return [];
     return d.items.map((it, i) => {
       const title = it.title || "";

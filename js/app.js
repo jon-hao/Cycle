@@ -273,8 +273,8 @@ window.CycleSelect = (function () {
   }
 
   async function init() {
-    // 预热本地大模型（不等待）
-    window.CycleLLM.ping();
+    // 仅本机预览时预热 Ollama；GitHub Pages 上不探测，避免刷红控制台
+    if (window.CycleLLM.shouldProbe()) window.CycleLLM.ping();
 
     applyTheme();
     wire();

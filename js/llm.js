@@ -3,12 +3,13 @@ window.CycleLLM = (function () {
     baseUrl: "http://localhost:11434",
     model: "llama3.2",
     timeoutMs: 60000,
+    /** Pages 上默认不探测本机，避免控制台刷 ERR_CONNECTION_REFUSED */
+    tryRemote: false,
   };
 
-  /** 避免 Ollama 未启动时反复 POST 刷红控制台 */
-  let cache = { ok: false, checkedAt: 0, models: [] };
+  let cache = { ok: false, checkedAt: 0, models: [], skipped: false };
   const TTL_OK = 60000;
-  const TTL_FAIL = 20000;
+  const TTL_FAIL = 30000;
 
   function settings() {
     try {
@@ -19,7 +20,25 @@ window.CycleLLM = (function () {
     }
   }
 
+  /** 仅本机预览，或显式开启 tryRemote 时才连 Ollama（Ollama 无 JSONP） */
+  function shouldProbe() {
+    const h = location.hostname;
+    const local =
+      h === "localhost" ||
+      h === "127.0.0.1" ||
+      h === "[::1]" ||
+      h === "" ||
+      location.protocol === "file:";
+    if (local) return true;
+    return !!settings().tryRemote;
+  }
+
   async function ping(force) {
+    if (!shouldProbe()) {
+      cache = { ok: false, checkedAt: Date.now(), models: [], skipped: true };
+      return { ok: false, models: [], skipped: true };
+    }
+
     const now = Date.now();
     const ttl = cache.ok ? TTL_OK : TTL_FAIL;
     if (!force && cache.checkedAt && now - cache.checkedAt < ttl) {
@@ -32,15 +51,15 @@ window.CycleLLM = (function () {
       const res = await fetch(cfg.baseUrl + "/api/tags", { signal: ctrl.signal });
       clearTimeout(t);
       if (!res.ok) {
-        cache = { ok: false, checkedAt: now, models: [] };
+        cache = { ok: false, checkedAt: now, models: [], skipped: false };
         return { ok: false, models: [] };
       }
       const data = await res.json();
       const models = (data.models || []).map((m) => m.name);
-      cache = { ok: true, checkedAt: now, models };
+      cache = { ok: true, checkedAt: now, models, skipped: false };
       return { ok: true, models };
     } catch (_) {
-      cache = { ok: false, checkedAt: now, models: [] };
+      cache = { ok: false, checkedAt: now, models: [], skipped: false };
       return { ok: false, models: [] };
     }
   }
@@ -72,7 +91,7 @@ window.CycleLLM = (function () {
       };
     } catch (err) {
       clearTimeout(timer);
-      cache = { ok: false, checkedAt: Date.now(), models: [] };
+      cache = { ok: false, checkedAt: Date.now(), models: [], skipped: false };
       return { ok: false, error: String(err && err.message ? err.message : err) };
     }
   }
@@ -141,5 +160,5 @@ window.CycleLLM = (function () {
     return { ok: false, text: fallback(kind, payload, lang), source: "fallback" };
   }
 
-  return { settings, ping, interpret };
+  return { settings, ping, interpret, shouldProbe };
 })();
