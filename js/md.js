@@ -112,11 +112,12 @@ window.CycleMD = (function () {
         continue;
       }
 
-      if (/^>\s?/.test(trimmed)) {
+      // escapeHtml 后 '>' 变成 '&gt;'
+      if (/^(&gt;|>)\s?/.test(trimmed)) {
         flushPara();
         const quote = [];
-        while (i < lines.length && /^>\s?/.test(lines[i].trim())) {
-          quote.push(lines[i].trim().replace(/^>\s?/, ""));
+        while (i < lines.length && /^(&gt;|>)\s?/.test(lines[i].trim())) {
+          quote.push(lines[i].trim().replace(/^(&gt;|>)\s?/, ""));
           i += 1;
         }
         out.push(`<blockquote class="md-quote">${inline(quote.join(" "))}</blockquote>`);
