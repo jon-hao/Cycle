@@ -1,12 +1,8 @@
-/**
- * 本地大模型：默认对接 Ollama (http://localhost:11434)
- * 可在设置中改 baseUrl / model；离线时返回规则化示意解读。
- */
 window.CycleLLM = (function () {
   const DEFAULTS = {
     baseUrl: "http://localhost:11434",
     model: "llama3.2",
-    timeoutMs: 45000,
+    timeoutMs: 60000,
   };
 
   function settings() {
@@ -22,13 +18,12 @@ window.CycleLLM = (function () {
     const cfg = settings();
     try {
       const ctrl = new AbortController();
-      const t = setTimeout(() => ctrl.abort(), 2500);
+      const t = setTimeout(() => ctrl.abort(), 2000);
       const res = await fetch(cfg.baseUrl + "/api/tags", { signal: ctrl.signal });
       clearTimeout(t);
       if (!res.ok) return { ok: false };
       const data = await res.json();
-      const models = (data.models || []).map((m) => m.name);
-      return { ok: true, models };
+      return { ok: true, models: (data.models || []).map((m) => m.name) };
     } catch (_) {
       return { ok: false, models: [] };
     }
@@ -57,7 +52,7 @@ window.CycleLLM = (function () {
       const data = await res.json();
       return {
         ok: true,
-        text: (data.message && data.message.content) || JSON.stringify(data),
+        text: (data.message && data.message.content) || "",
       };
     } catch (err) {
       clearTimeout(timer);
@@ -65,51 +60,59 @@ window.CycleLLM = (function () {
     }
   }
 
-  function fallbackBrief(kind, payload, lang) {
+  function colloquialSystem(lang) {
+    return lang === "zh"
+      ? "你是接地气的宏观解说员。用大白话讲清楚，少用术语；必须分三小段：现在怎么看、谁可能舒服、谁可能难受。不要编造没给的数字，不要喊买卖口号。"
+      : "You are a plain-spoken macro guide. Use everyday English, light jargon. Reply in 3 short parts: the takeaway, who may benefit, who may struggle. Do not invent numbers. No trade calls.";
+  }
+
+  function fallback(kind, payload, lang) {
     const zh = lang === "zh";
     if (kind === "macro") {
       return zh
-        ? `【示意解读｜本地模型未连接】\n当前政策利率约 ${payload.rate}% ，通胀/CPI 约 ${payload.cpi}% 。\n利好：防御性现金流、短端利率敏感资产（视降息预期）。\n利空：长久期成长股若通胀反复；高杠杆板块。\n请启动 Ollama 以获得完整分析。`
-        : `[Offline brief]\nPolicy rate ~${payload.rate}%, CPI ~${payload.cpi}%.\nBullish: defensive cashflows; rate-sensitive assets if cuts priced.\nBearish: long-duration growth if inflation reaccelerates; high leverage.\nStart Ollama for a full brief.`;
+        ? `${window.t("aiOffline")}\n\n现在怎么看：利率大约 ${payload.rate ?? "未知"}%，物价相关读数大约 ${payload.cpi ?? "未知"}%。整体更像“边走边看”。\n谁可能舒服：现金流稳、负债不重的公司更抗造。\n谁可能难受：靠借钱扩张、估值已经很贵的方向更敏感。`
+        : `${window.t("aiOffline")}\n\nTakeaway: rate ~${payload.rate ?? "n/a"}%, CPI-like ~${payload.cpi ?? "n/a"}. Wait-and-see mood.\nMay benefit: steady cashflow, lighter leverage.\nMay struggle: highly levered, rich-valuation stories.`;
     }
     if (kind === "news") {
       return zh
-        ? `【示意解读｜本地模型未连接】\n新闻偏向宏观数据/政策表态。短期关注利率路径与风险偏好。\n利好：质量因子、红利；利空：高估值拥挤交易。`
-        : `[Offline brief]\nMacro/policy tone. Watch the rate path and risk appetite.\nBullish: quality/dividends; Bearish: crowded high-valuation trades.`;
+        ? `${window.t("aiOffline")}\n\n现在怎么看：这是一条重要快讯，先看它会不会改变“利率/风险偏好”两件事。\n谁可能舒服：防御和红利类往往更稳。\n谁可能难受：拥挤的高估值交易更容易晃。`
+        : `${window.t("aiOffline")}\n\nTakeaway: an important flash — watch rates and risk appetite.\nMay benefit: defensives/dividends.\nMay struggle: crowded high-valuation trades.`;
     }
-    if (kind === "event") {
-      return zh
-        ? `【示意解读｜本地模型未连接】\n事件：${payload.title}\n期望 ${payload.forecast} / 公布 ${payload.actual || "待公布"}。\n利好：若公布弱于预期且央行偏鸽 — 成长/利率敏感板块。\n利空：若强于预期 — 美元与短端利率相关交易。`
-        : `[Offline brief]\nEvent: ${payload.title}\nFcst ${payload.forecast} / Act ${payload.actual || "pending"}.\nBullish if soft + dovish: growth/rate-sensitive.\nBearish if hot: USD & front-end rate trades.`;
-    }
-    return zh ? "本地模型未连接。" : "Local model offline.";
+    return zh
+      ? `${window.t("aiOffline")}\n\n现在怎么看：关注公布值相对期望偏强还是偏弱。\n谁可能舒服：若偏弱且政策更松，成长和利率敏感方向可能松口气。\n谁可能难受：若偏强，对利率敏感的资产可能更紧张。`
+      : `${window.t("aiOffline")}\n\nTakeaway: compare actual vs forecast.\nMay benefit if soft+dovish: growth/rate-sensitive.\nMay struggle if hot: rate-sensitive assets.`;
   }
 
   async function interpret(kind, payload, lang) {
-    const langName = lang === "zh" ? "简体中文" : "English";
-    const system =
-      lang === "zh"
-        ? "你是宏观策略助手。结合康波长波与短周期，用简洁中文输出：1) 核心判断 2) 利好板块 3) 利空板块 4) 风险提示。不要编造精确未给出的数字。"
-        : "You are a macro strategist. Using Kondratiev context and the given figures, reply in concise English with: 1) Core view 2) Bullish sectors 3) Bearish sectors 4) Risks. Do not invent numbers not provided.";
-
+    const system = colloquialSystem(lang);
     let user = "";
     if (kind === "macro") {
-      user = `Country=${payload.country}; Wave=${payload.wave}; Phase=${payload.phase}; Rate=${payload.rate}; Inflation=${payload.inflation}; CPI=${payload.cpi}; PPI=${payload.ppi}; FearGreed=${payload.fearGreed}. Respond in ${langName}.`;
+      user =
+        lang === "zh"
+          ? `国家=${payload.countryLabel}；康波=K${payload.waveId} ${payload.phase}；利率=${payload.rate}；通胀=${payload.inflation}；CPI=${payload.cpi}；PPI=${payload.ppi}；恐慌贪婪=${payload.fearGreed}。请通俗解说。`
+          : `Country=${payload.countryLabel}; Wave=K${payload.waveId} ${payload.phase}; rate=${payload.rate}; inflation=${payload.inflation}; CPI=${payload.cpi}; PPI=${payload.ppi}; Fear&Greed=${payload.fearGreed}. Plain language please.`;
     } else if (kind === "news") {
-      user = `News title: ${payload.title}\nSummary: ${payload.summary}\nCountry: ${payload.country}\nRespond in ${langName}.`;
+      user =
+        lang === "zh"
+          ? `重要新闻：${payload.title}\n摘要：${payload.summary}\n请通俗解说。`
+          : `Headline: ${payload.title}\nSummary: ${payload.summary}\nPlain language please.`;
+    } else if (kind === "wave") {
+      user =
+        lang === "zh"
+          ? `康波当前位置：K${payload.waveId}，阶段=${payload.phase}，进度=${payload.progress}%。用大白话讲我们大概处在什么气候、往后更可能偏向什么。`
+          : `Kondratiev now: K${payload.waveId}, phase=${payload.phase}, progress=${payload.progress}%. Explain the climate in plain words.`;
     } else {
-      user = `Economic calendar event: ${payload.title}; forecast=${payload.forecast}; actual=${payload.actual}; previous=${payload.previous}; country=${payload.country}. Respond in ${langName}.`;
+      user =
+        lang === "zh"
+          ? `经济数据事件：${payload.title}；期望=${payload.forecast}；公布=${payload.actual}；前值=${payload.previous}。通俗解说。`
+          : `Release: ${payload.title}; forecast=${payload.forecast}; actual=${payload.actual}; previous=${payload.previous}. Plain language.`;
     }
 
     const live = await chat(system, user);
-    if (live.ok) return { ok: true, text: live.text, source: "ollama" };
-    return {
-      ok: false,
-      text: fallbackBrief(kind, payload, lang),
-      source: "fallback",
-      error: live.error,
-    };
+    if (live.ok && live.text.trim())
+      return { ok: true, text: live.text.trim(), source: "ollama" };
+    return { ok: false, text: fallback(kind, payload, lang), source: "fallback" };
   }
 
-  return { settings, ping, chat, interpret };
+  return { settings, ping, interpret };
 })();

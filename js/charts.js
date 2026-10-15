@@ -1,35 +1,51 @@
 window.CycleCharts = (function () {
+  function themeColor(name, fallback) {
+    return (
+      getComputedStyle(document.documentElement).getPropertyValue(name).trim() ||
+      fallback
+    );
+  }
+
   function lineChart(canvas, points, opts) {
     const o = Object.assign(
       {
-        color: "#3d8bfd",
-        fill: "rgba(61,139,253,0.15)",
-        grid: true,
-        pad: 28,
+        color: themeColor("--accent-2", "#3d8bfd"),
+        pad: 36,
+        blinkAt: null, // 日期字符串，用于闪烁当前节点
       },
       opts || {}
     );
+    if (!points || !points.length) return { destroy() {} };
+
+    let blinkIdx = points.length - 1;
+    if (o.blinkAt != null) {
+      const want = String(o.blinkAt);
+      const found = points.findIndex((p) => String(p.d) === want);
+      if (found >= 0) blinkIdx = found;
+    }
+
+    const state = { idx: blinkIdx, points, o, t0: performance.now() };
     const ctx = canvas.getContext("2d");
-    const dpr = window.devicePixelRatio || 1;
-    const w = canvas.clientWidth || 320;
-    const h = canvas.clientHeight || 180;
-    canvas.width = Math.floor(w * dpr);
-    canvas.height = Math.floor(h * dpr);
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, w, h);
+    let raf = 0;
 
-    const vals = points.map((p) => p.v);
-    const min = Math.min(...vals);
-    const max = Math.max(...vals);
-    const span = max - min || 1;
-    const pad = o.pad;
-    const iw = w - pad * 2;
-    const ih = h - pad * 2;
+    function draw() {
+      const dpr = window.devicePixelRatio || 1;
+      const w = canvas.clientWidth || 320;
+      const h = canvas.clientHeight || 200;
+      canvas.width = Math.floor(w * dpr);
+      canvas.height = Math.floor(h * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, w, h);
 
-    if (o.grid) {
-      ctx.strokeStyle = getComputedStyle(document.documentElement)
-        .getPropertyValue("--line")
-        .trim() || "#ccc";
+      const vals = points.map((p) => p.v);
+      const min = Math.min(...vals);
+      const max = Math.max(...vals);
+      const span = max - min || 1;
+      const pad = o.pad;
+      const iw = w - pad * 2;
+      const ih = h - pad * 2;
+
+      ctx.strokeStyle = themeColor("--line", "#ccc");
       ctx.lineWidth = 1;
       for (let i = 0; i <= 4; i++) {
         const y = pad + (ih * i) / 4;
@@ -38,59 +54,133 @@ window.CycleCharts = (function () {
         ctx.lineTo(w - pad, y);
         ctx.stroke();
       }
-    }
 
-    const xy = points.map((p, i) => {
-      const x = pad + (iw * i) / Math.max(1, points.length - 1);
-      const y = pad + ih - ((p.v - min) / span) * ih;
-      return { x, y, p };
-    });
+      const xy = points.map((p, i) => ({
+        x: pad + (iw * i) / Math.max(1, points.length - 1),
+        y: pad + ih - ((p.v - min) / span) * ih,
+        p,
+      }));
 
-    ctx.beginPath();
-    xy.forEach((pt, i) => {
-      if (i === 0) ctx.moveTo(pt.x, pt.y);
-      else ctx.lineTo(pt.x, pt.y);
-    });
-    ctx.strokeStyle = o.color;
-    ctx.lineWidth = 2.2;
-    ctx.stroke();
+      ctx.beginPath();
+      xy.forEach((pt, i) => (i ? ctx.lineTo(pt.x, pt.y) : ctx.moveTo(pt.x, pt.y)));
+      ctx.strokeStyle = o.color;
+      ctx.lineWidth = 2.4;
+      ctx.stroke();
 
-    if (o.fill && xy.length) {
       ctx.lineTo(xy[xy.length - 1].x, pad + ih);
       ctx.lineTo(xy[0].x, pad + ih);
       ctx.closePath();
-      ctx.fillStyle = o.fill;
+      if (o.color.startsWith("#")) {
+        ctx.fillStyle = o.color + "24";
+      } else {
+        ctx.fillStyle = o.color.replace(")", ",0.14)").replace("rgb", "rgba");
+      }
       ctx.fill();
+
+      // 当前节点闪烁
+      if (o.blinkAt != null && xy[blinkIdx]) {
+        const pulse =
+          0.35 + 0.65 * (0.5 + 0.5 * Math.sin((performance.now() - state.t0) / 280));
+        const b = xy[blinkIdx];
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, 10 + pulse * 6, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(228, 87, 46, ${pulse * 0.45})`;
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, 5, 0, Math.PI * 2);
+        ctx.fillStyle = themeColor("--accent", "#e4572e");
+        ctx.fill();
+      }
+
+      const i = Math.max(0, Math.min(points.length - 1, state.idx));
+      const cur = xy[i];
+      ctx.beginPath();
+      ctx.moveTo(cur.x, pad);
+      ctx.lineTo(cur.x, pad + ih);
+      ctx.strokeStyle = themeColor("--muted", "#888");
+      ctx.setLineDash([4, 4]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.arc(cur.x, cur.y, 5, 0, Math.PI * 2);
+      ctx.fillStyle = o.color;
+      ctx.fill();
+
+      ctx.fillStyle = themeColor("--ink", "#111");
+      ctx.font = "12px 'Microsoft YaHei', sans-serif";
+      ctx.textAlign = "left";
+      ctx.fillText(`${cur.p.d}  ·  ${cur.p.v.toFixed(2)}`, pad, 18);
+      ctx.fillText(max.toFixed(1), 4, pad + 8);
+      ctx.fillText(min.toFixed(1), 4, pad + ih);
     }
 
-    ctx.fillStyle = getComputedStyle(document.body).color || "#111";
-    ctx.font = "11px system-ui,sans-serif";
-    ctx.fillText(String(max.toFixed(1)), 4, pad + 4);
-    ctx.fillText(String(min.toFixed(1)), 4, pad + ih);
-    if (points.length) {
-      ctx.fillText(points[0].d, pad, h - 8);
-      ctx.fillText(points[points.length - 1].d, w - pad - 40, h - 8);
+    function posToIndex(clientX) {
+      const rect = canvas.getBoundingClientRect();
+      const w = rect.width;
+      const pad = o.pad;
+      const iw = w - pad * 2;
+      const x = clientX - rect.left;
+      const t = (x - pad) / Math.max(1, iw);
+      return Math.round(Math.max(0, Math.min(1, t)) * (points.length - 1));
     }
+
+    function onMove(e) {
+      const x = e.touches ? e.touches[0].clientX : e.clientX;
+      state.idx = posToIndex(x);
+      draw();
+      if (e.cancelable) e.preventDefault();
+    }
+
+    canvas.style.touchAction = "none";
+    canvas.addEventListener("mousemove", onMove);
+    canvas.addEventListener("touchmove", onMove, { passive: false });
+    canvas.addEventListener("touchstart", onMove, { passive: false });
+
+    function loop() {
+      draw();
+      if (o.blinkAt != null) raf = requestAnimationFrame(loop);
+    }
+    loop();
+    window.addEventListener("resize", draw);
+
+    return {
+      destroy() {
+        cancelAnimationFrame(raf);
+        canvas.removeEventListener("mousemove", onMove);
+        canvas.removeEventListener("touchmove", onMove);
+        canvas.removeEventListener("touchstart", onMove);
+        window.removeEventListener("resize", draw);
+      },
+    };
   }
 
   function kondratievQuadrant(svg, model) {
-    // model: {x,y} in [-1,1]
     const ns = "http://www.w3.org/2000/svg";
     while (svg.firstChild) svg.removeChild(svg.firstChild);
-    const w = 320;
-    const h = 320;
+    const w = 360;
+    const h = 360;
     svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
     const cx = w / 2;
     const cy = h / 2;
-    const r = 120;
+    const r = 128;
 
-    function el(name, attrs) {
+    function el(name, attrs, text) {
       const n = document.createElementNS(ns, name);
       Object.entries(attrs).forEach(([k, v]) => n.setAttribute(k, v));
+      if (text != null) n.textContent = text;
       svg.appendChild(n);
       return n;
     }
 
+    el("defs", {});
+    const defs = svg.querySelector("defs");
+    const grad = document.createElementNS(ns, "radialGradient");
+    grad.setAttribute("id", "kGlow");
+    grad.innerHTML =
+      '<stop offset="0%" stop-color="var(--brand)" stop-opacity="0.25"/><stop offset="100%" stop-color="var(--brand)" stop-opacity="0"/>';
+    defs.appendChild(grad);
+
+    el("circle", { cx, cy, r: r + 18, fill: "url(#kGlow)" });
     el("circle", {
       cx,
       cy,
@@ -99,95 +189,68 @@ window.CycleCharts = (function () {
       stroke: "var(--line)",
       "stroke-width": "1.5",
     });
-    el("line", {
-      x1: cx - r,
-      y1: cy,
-      x2: cx + r,
-      y2: cy,
-      stroke: "var(--line)",
-    });
-    el("line", {
-      x1: cx,
-      y1: cy - r,
-      x2: cx,
-      y2: cy + r,
-      stroke: "var(--line)",
-    });
 
-    const labels = [
-      { t: window.t("summer"), x: cx - r * 0.55, y: cy - r * 0.55 },
-      { t: window.t("spring"), x: cx + r * 0.55, y: cy - r * 0.55 },
-      { t: window.t("autumn"), x: cx - r * 0.55, y: cy + r * 0.55 },
-      { t: window.t("winter"), x: cx + r * 0.55, y: cy + r * 0.55 },
+    // quadrants soft fills
+    const quads = [
+      { d: `M ${cx} ${cy} L ${cx} ${cy - r} A ${r} ${r} 0 0 1 ${cx + r} ${cy} Z`, f: "rgba(61,206,160,0.08)" },
+      { d: `M ${cx} ${cy} L ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx} ${cy - r} Z`, f: "rgba(61,139,253,0.08)" },
+      { d: `M ${cx} ${cy} L ${cx} ${cy + r} A ${r} ${r} 0 0 1 ${cx - r} ${cy} Z`, f: "rgba(255,122,89,0.08)" },
+      { d: `M ${cx} ${cy} L ${cx + r} ${cy} A ${r} ${r} 0 0 1 ${cx} ${cy + r} Z`, f: "rgba(155,120,255,0.08)" },
     ];
-    labels.forEach((L) => {
-      const text = el("text", {
-        x: L.x,
-        y: L.y,
-        "text-anchor": "middle",
-        fill: "var(--muted)",
-        "font-size": "12",
-      });
-      text.textContent = L.t;
-    });
+    quads.forEach((q) => el("path", { d: q.d, fill: q.f }));
 
-    const px = cx + model.x * r * 0.85;
-    const py = cy - model.y * r * 0.85;
-    el("circle", {
-      cx: px,
-      cy: py,
-      r: 8,
-      class: "pulse-dot",
+    el("line", { x1: cx - r, y1: cy, x2: cx + r, y2: cy, stroke: "var(--line)" });
+    el("line", { x1: cx, y1: cy - r, x2: cx, y2: cy + r, stroke: "var(--line)" });
+
+    [
+      { t: window.t("summer"), x: cx - r * 0.52, y: cy - r * 0.52 },
+      { t: window.t("spring"), x: cx + r * 0.52, y: cy - r * 0.52 },
+      { t: window.t("autumn"), x: cx - r * 0.52, y: cy + r * 0.58 },
+      { t: window.t("winter"), x: cx + r * 0.52, y: cy + r * 0.58 },
+    ].forEach((L) =>
+      el(
+        "text",
+        {
+          x: L.x,
+          y: L.y,
+          "text-anchor": "middle",
+          fill: "var(--muted)",
+          "font-size": "13",
+          "font-family": "Microsoft YaHei, sans-serif",
+        },
+        L.t
+      )
+    );
+
+    const px = cx + model.x * r * 0.88;
+    const py = cy - model.y * r * 0.88;
+    el("circle", { cx: px, cy: py, r: 16, class: "pulse-ring", fill: "var(--accent)", opacity: "0.35" });
+    el("circle", { cx: px, cy: py, r: 7, fill: "var(--accent)" });
+    el("circle", { cx: px, cy: py, r: 3, fill: "#fff" });
+
+    // direction arrow
+    const ang = Math.atan2(-model.dy, model.dx);
+    const len = 28;
+    const ax = px + Math.cos(ang) * 14;
+    const ay = py + Math.sin(ang) * 14;
+    const bx = ax + Math.cos(ang) * len;
+    const by = ay + Math.sin(ang) * len;
+    el("line", {
+      x1: ax,
+      y1: ay,
+      x2: bx,
+      y2: by,
+      stroke: "var(--accent)",
+      "stroke-width": "3",
+      "stroke-linecap": "round",
+    });
+    const left = ang + Math.PI * 0.8;
+    const right = ang - Math.PI * 0.8;
+    el("path", {
+      d: `M ${bx} ${by} L ${bx + Math.cos(left) * 10} ${by + Math.sin(left) * 10} L ${bx + Math.cos(right) * 10} ${by + Math.sin(right) * 10} Z`,
       fill: "var(--accent)",
     });
-    el("circle", {
-      cx: px,
-      cy: py,
-      r: 3.5,
-      fill: "#fff",
-    });
   }
 
-  function dotsPlot(canvas, series) {
-    // series: [{year, dots:[...]}]
-    const ctx = canvas.getContext("2d");
-    const dpr = window.devicePixelRatio || 1;
-    const w = canvas.clientWidth || 320;
-    const h = canvas.clientHeight || 200;
-    canvas.width = Math.floor(w * dpr);
-    canvas.height = Math.floor(h * dpr);
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, w, h);
-    if (!series || !series.length) return;
-
-    const all = series.flatMap((s) => s.dots);
-    const min = Math.min(...all) - 0.25;
-    const max = Math.max(...all) + 0.25;
-    const pad = 36;
-    const iw = w - pad * 2;
-    const ih = h - pad * 2;
-    const color = getComputedStyle(document.documentElement)
-      .getPropertyValue("--accent")
-      .trim() || "#3d8bfd";
-
-    series.forEach((s, i) => {
-      const x = pad + ((i + 0.5) * iw) / series.length;
-      ctx.fillStyle = getComputedStyle(document.body).color || "#111";
-      ctx.font = "12px system-ui";
-      ctx.textAlign = "center";
-      ctx.fillText(String(s.year), x, h - 10);
-      s.dots.forEach((v, j) => {
-        const y = pad + ih - ((v - min) / (max - min)) * ih;
-        const jitter = ((j % 5) - 2) * 4;
-        ctx.beginPath();
-        ctx.arc(x + jitter, y, 5, 0, Math.PI * 2);
-        ctx.fillStyle = color;
-        ctx.globalAlpha = 0.75;
-        ctx.fill();
-        ctx.globalAlpha = 1;
-      });
-    });
-  }
-
-  return { lineChart, kondratievQuadrant, dotsPlot };
+  return { lineChart, kondratievQuadrant };
 })();
