@@ -215,10 +215,10 @@ window.CycleAPI = (function () {
       v: Number(values[i]),
     }));
     const value = Number(values[values.length - 1]);
-    let labelKey = "fgNeutral";
+    // 四段：极度恐慌 / 恐慌 / 贪婪 / 极度贪婪
+    let labelKey = "fgFear";
     if (value < 25) labelKey = "fgExtremeFear";
-    else if (value < 45) labelKey = "fgFear";
-    else if (value < 55) labelKey = "fgNeutral";
+    else if (value < 50) labelKey = "fgFear";
     else if (value < 75) labelKey = "fgGreed";
     else labelKey = "fgExtremeGreed";
     return {
