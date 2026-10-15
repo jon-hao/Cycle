@@ -143,7 +143,9 @@ window.CyclePages.data = (function () {
 
   function applyWaveSpan(series, spanKey) {
     if (!series || !series.length) return series || [];
-    const conf = WAVE_SPANS.find((s) => s.value === spanKey) || WAVE_SPANS[5];
+    const conf =
+      WAVE_SPANS.find((s) => s.value === spanKey) ||
+      WAVE_SPANS.find((s) => s.value === "3m");
     const last = parseSeriesDate(series[series.length - 1].d);
     if (!last) return series.slice();
     const end = last.y + (last.mo - 1) / 12;
@@ -184,7 +186,7 @@ window.CyclePages.data = (function () {
     const spanKey =
       mode === "realtime" && WAVE_SPANS.some((s) => s.value === savedSpan)
         ? savedSpan
-        : "20y";
+        : "3m";
     const spanRow =
       mode === "realtime"
         ? `<div class="k-span-row">
