@@ -115,9 +115,25 @@ window.CyclePages.data = (function () {
     URL.revokeObjectURL(a.href);
   }
 
+  function cycleSignalHtml(k) {
+    const nextKey = k.nextPhaseKey || k.phaseKey;
+    const phase = window.CycleKondratiev.phaseLabel(k.phaseKey);
+    const toward = window.CycleKondratiev.phaseLabel(nextKey);
+    return `
+      <div class="k-signal">
+        <div class="k-signal-row"><span class="k-signal-lab">${window.t("kNowPhase")}</span>
+          <span class="pill phase-${k.phaseKey}">${phase}</span></div>
+        <div class="k-signal-row"><span class="k-signal-lab">${window.t("kHeading")}</span>
+          <span>→ ${toward}</span></div>
+        <div class="k-signal-row"><span class="k-signal-lab">${window.t("kPortfolio")}</span>
+          <span>${window.t(k.phaseKey + "Portfolio")}</span></div>
+      </div>
+      <p class="k-signal-foot">${window.t("kPortfolioNote")}</p>`;
+  }
+
   function openWaveModal(k, aiPayload, macro, fg) {
     const country = k.country || window.CycleState.country;
-    const mode = k.mode || window.CycleState.kModel || "schematic";
+    const mode = k.mode || window.CycleState.kModel || "realtime";
     const calYear = Math.round(k.year);
     const series =
       window.CycleKondratiev.seriesForMode(mode, k, macro, fg) ||
@@ -146,6 +162,7 @@ window.CyclePages.data = (function () {
       <div class="sheet-head"><h2 class="card-title">${window.t("kondratiev")}</h2><button type="button" class="icon-btn" data-close>×</button></div>
       <p class="card-date"><span class="pill phase-${k.phaseKey}">${pill}</span>
         <span class="card-label"> · ${mode === "realtime" ? window.t("kModelRealtime") : window.t("kModelSchematic")}</span></p>
+      ${cycleSignalHtml(k)}
       <p class="card-content">${theme} · ${window.t(k.phaseKey + "Desc")}</p>
       ${scoreLine}
       <p class="k-model-note">${hint}</p>
@@ -278,8 +295,8 @@ window.CyclePages.data = (function () {
 
   function kModelOptions() {
     return [
-      { value: "schematic", label: window.t("kModelSchematic") },
       { value: "realtime", label: window.t("kModelRealtime") },
+      { value: "schematic", label: window.t("kModelSchematic") },
     ];
   }
 
@@ -287,7 +304,7 @@ window.CyclePages.data = (function () {
     const soft = opts && opts.soft;
     root.innerHTML = skeleton();
     const code = window.CycleState.country;
-    const mode = window.CycleState.kModel || "schematic";
+    const mode = window.CycleState.kModel || "realtime";
 
     let macro;
     let fg;
@@ -325,6 +342,7 @@ window.CyclePages.data = (function () {
           <button type="button" class="k-hit" id="openWave" aria-label="${window.t("kondratiev")}">
             <svg id="kQuad" class="k-quad"></svg>
           </button>
+          ${cycleSignalHtml(k)}
           <p class="k-model-note">${modelHint}</p>
         </section>
 

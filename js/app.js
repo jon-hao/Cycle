@@ -8,7 +8,7 @@ window.CycleState = {
     return "zh";
   })(),
   theme: localStorage.getItem("cycle-theme") || "light",
-  kModel: localStorage.getItem("cycle-k-model") === "realtime" ? "realtime" : "schematic",
+  kModel: localStorage.getItem("cycle-k-model") === "schematic" ? "schematic" : "realtime",
   page: "data",
 };
 

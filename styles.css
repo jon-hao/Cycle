@@ -489,6 +489,39 @@ button,
   color: var(--muted);
 }
 
+.k-signal {
+  margin: 10px 2px 0;
+  display: grid;
+  gap: 6px;
+}
+
+.k-signal-row {
+  display: grid;
+  grid-template-columns: 4.5em 1fr;
+  gap: 8px;
+  align-items: start;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.k-signal-lab {
+  color: var(--muted);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.k-signal-row .pill {
+  justify-self: start;
+  padding: 2px 8px;
+  font-size: 0.78rem;
+}
+
+.k-signal-foot {
+  margin: 2px 2px 0;
+  font-size: 0.68rem;
+  color: var(--muted);
+}
+
 .section-label {
   margin: 4px 2px 8px;
   font-size: 0.82rem;

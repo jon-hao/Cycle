@@ -185,6 +185,7 @@ window.CycleKondratiev = (function () {
       wave,
       progress,
       phaseKey: phase.key,
+      nextPhaseKey: nextPhase.key,
       local,
       x: pos.x,
       y: pos.y,
@@ -223,6 +224,7 @@ window.CycleKondratiev = (function () {
 
   function pillText(model) {
     const k = model || waveAt(new Date());
+    if (k.mode === "realtime") return phaseLabel(k.phaseKey);
     return `K${k.wave.id} · ${phaseLabel(k.phaseKey)}`;
   }
 
@@ -447,6 +449,7 @@ window.CycleKondratiev = (function () {
       wave: base.wave,
       progress,
       phaseKey,
+      nextPhaseKey: nextKey,
       local,
       x: pos.x,
       y: pos.y,
