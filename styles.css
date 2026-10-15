@@ -744,13 +744,28 @@ button,
 .metric-top {
   display: flex;
   justify-content: space-between;
+  align-items: flex-start;
   gap: 8px;
   color: var(--muted);
   font-size: 0.86rem;
+  min-width: 0;
+}
+
+.metric-top .card-title {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .metric-open {
+  flex: 0 0 auto;
   font-size: 0.75rem;
+  white-space: nowrap !important;
+  word-break: keep-all;
+  overflow-wrap: normal;
+  writing-mode: horizontal-tb;
 }
 
 .metric-value {
