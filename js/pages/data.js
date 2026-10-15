@@ -131,11 +131,69 @@ window.CyclePages.data = (function () {
       <p class="k-signal-foot">${window.t("kPortfolioNote")}</p>`;
   }
 
+  const WAVE_SPANS = [
+    { value: "1m", years: 1, grain: "month", labelKey: "span1y" },
+    { value: "2m", years: 2, grain: "month", labelKey: "span2y" },
+    { value: "3m", years: 3, grain: "month", labelKey: "span3y" },
+    { value: "5m", years: 5, grain: "month", labelKey: "span5y" },
+    { value: "10y", years: 10, grain: "year", labelKey: "span10y" },
+    { value: "20y", years: 20, grain: "year", labelKey: "span20y" },
+    { value: "50y", years: 50, grain: "year", labelKey: "span50y" },
+  ];
+
+  function waveSpanOptions() {
+    return WAVE_SPANS.map((s) => ({
+      value: s.value,
+      label: window.t(s.labelKey),
+    }));
+  }
+
+  function parseSeriesDate(d) {
+    const s = String(d || "");
+    const ym = s.match(/^(\d{4})[-.](\d{2})/);
+    if (ym) return { y: Number(ym[1]), mo: Number(ym[2]) };
+    const yOnly = s.match(/^(\d{4})$/);
+    if (yOnly) return { y: Number(yOnly[1]), mo: 6 };
+    return null;
+  }
+
+  function applyWaveSpan(series, spanKey) {
+    if (!series || !series.length) return series || [];
+    const conf = WAVE_SPANS.find((s) => s.value === spanKey) || WAVE_SPANS[5];
+    const last = parseSeriesDate(series[series.length - 1].d);
+    if (!last) return series.slice();
+    const end = last.y + (last.mo - 1) / 12;
+    const start = end - conf.years;
+    let sliced = series.filter((p) => {
+      const pd = parseSeriesDate(p.d);
+      if (!pd) return false;
+      return pd.y + (pd.mo - 1) / 12 >= start - 1e-6;
+    });
+    if (!sliced.length) sliced = series.slice();
+    if (conf.grain === "year") {
+      const byY = new Map();
+      sliced.forEach((p) => {
+        const pd = parseSeriesDate(p.d);
+        if (!pd) return;
+        const arr = byY.get(pd.y) || [];
+        arr.push(p.v);
+        byY.set(pd.y, arr);
+      });
+      sliced = [...byY.entries()]
+        .sort((a, b) => a[0] - b[0])
+        .map(([y, vs]) => ({
+          d: String(y),
+          v: vs.reduce((a, b) => a + b, 0) / vs.length,
+        }));
+    }
+    return sliced;
+  }
+
   function openWaveModal(k, aiPayload, macro, fg) {
     const country = k.country || window.CycleState.country;
     const mode = k.mode || window.CycleState.kModel || "realtime";
     const calYear = Math.round(k.year);
-    const series =
+    const fullSeries =
       window.CycleKondratiev.seriesForMode(mode, k, macro, fg) ||
       window.CycleKondratiev.longWaveSeries(calYear, country);
     const theme =
@@ -153,27 +211,64 @@ window.CyclePages.data = (function () {
       mode === "realtime" && k.scores
         ? `<p class="card-content">growth ${k.scores.growthScore.toFixed(2)} · inflation ${k.scores.inflationScore.toFixed(2)}</p>`
         : "";
-    const blinkAt =
-      mode === "realtime" && series && series.length
-        ? String(series[series.length - 1].d)
-        : String(calYear);
+    const savedSpan = localStorage.getItem("cycle-wave-span");
+    const spanKey =
+      mode === "realtime" && WAVE_SPANS.some((s) => s.value === savedSpan)
+        ? savedSpan
+        : "20y";
+    const spanRow =
+      mode === "realtime"
+        ? `<div class="k-span-row">
+            <span class="k-span-lab">${window.t("kSpan")}</span>
+            <div class="sq-select k-span-select" id="kSpanSelect" data-value="${spanKey}"></div>
+          </div>`
+        : "";
     window.CycleUI.openModal(`
       <div class="sheet-head"><h2 class="card-title">${window.t("kondratiev")}</h2><button type="button" class="icon-btn" data-close>×</button></div>
       ${cycleSignalHtml(k)}
       <p class="card-content">${theme} · ${window.t(k.phaseKey + "Desc")}</p>
       ${scoreLine}
       <p class="k-model-note">${hint}</p>
+      ${spanRow}
       <canvas class="chart" id="waveChart" height="220"></canvas>
       <div class="ai-host" id="aiWaveHost"></div>
     `);
     requestAnimationFrame(() => {
-      window.CycleCharts.lineChart(document.getElementById("waveChart"), series, {
-        color: (window.CyclePhaseColor && window.CyclePhaseColor[k.phaseKey]) || "#0f6e56",
-        blinkAt,
-        xUnit: window.CycleState.lang === "en" ? "Time" : "时间",
-        yUnit: "",
-        xTicks: mode === "realtime" ? 7 : 6,
-      });
+      let chartCtl = null;
+      const canvas = document.getElementById("waveChart");
+      const chartColor =
+        (window.CyclePhaseColor && window.CyclePhaseColor[k.phaseKey]) ||
+        "#0f6e56";
+
+      function paint(span) {
+        const series =
+          mode === "realtime" ? applyWaveSpan(fullSeries, span) : fullSeries;
+        const blinkAt =
+          mode === "realtime" && series && series.length
+            ? String(series[series.length - 1].d)
+            : String(calYear);
+        if (chartCtl && chartCtl.destroy) chartCtl.destroy();
+        chartCtl = window.CycleCharts.lineChart(canvas, series, {
+          color: chartColor,
+          blinkAt,
+          xUnit: window.CycleState.lang === "en" ? "Time" : "时间",
+          yUnit: "",
+          xTicks: mode === "realtime" ? 7 : 6,
+        });
+      }
+
+      paint(spanKey);
+
+      if (mode === "realtime") {
+        const spanEl = document.getElementById("kSpanSelect");
+        if (spanEl) {
+          window.CycleSelect.mount(spanEl, waveSpanOptions(), spanKey, (v) => {
+            localStorage.setItem("cycle-wave-span", v);
+            paint(v);
+          });
+        }
+      }
+
       window.CycleAIUI.mount(
         document.getElementById("aiWaveHost"),
         "wave",

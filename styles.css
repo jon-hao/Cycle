@@ -489,6 +489,26 @@ button,
   color: var(--muted);
 }
 
+.k-span-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 8px 0 0;
+}
+
+.k-span-row .k-span-lab {
+  font-size: 0.78rem;
+  color: var(--muted);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.k-span-select .sq-select-btn {
+  padding: 6px 10px;
+  font-size: 0.78rem;
+}
+
 .k-signal {
   margin: 10px 2px 0;
   display: grid;
@@ -547,6 +567,16 @@ button,
   font-family: var(--font);
   font-size: 1.2rem;
   font-weight: 700;
+}
+
+/* 首屏两张大卡标题同字号 */
+.hero-row .k-panel .panel-head h2.card-title,
+.hero-row .fg-card .metric-top .card-title {
+  font-family: var(--font);
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: var(--ink);
+  line-height: 1.25;
 }
 
 .pill {
