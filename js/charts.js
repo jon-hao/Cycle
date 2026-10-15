@@ -9,9 +9,9 @@ window.CycleCharts = (function () {
   function formatTickLabel(raw) {
     const s = String(raw);
     if (/^\d{4}$/.test(s)) return s;
-    if (/^\d{4}-\d{2}/.test(s)) return s.slice(0, 7);
-    if (s.length > 7) return s.slice(0, 7);
-    return s;
+    if (/^\d{4}[-.]\d{2}/.test(s)) return s.slice(0, 7).replace("-", ".");
+    if (s.length > 7) return s.slice(0, 7).replace("-", ".");
+    return s.replace("-", ".");
   }
 
   /** 均匀选取横轴刻度下标，首尾必含，中间留白 */
@@ -149,7 +149,7 @@ window.CycleCharts = (function () {
       ctx.textAlign = "left";
       const yUnit = o.yUnit || "";
       ctx.fillText(
-        `${cur.p.d}  ·  ${cur.p.v.toFixed(2)}${yUnit}`,
+        `${formatTickLabel(cur.p.d)}  ·  ${cur.p.v.toFixed(2)}${yUnit}`,
         padL,
         16
       );

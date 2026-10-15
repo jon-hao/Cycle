@@ -158,7 +158,7 @@ window.CyclePages.data = (function () {
         blinkAt,
         xUnit: window.CycleState.lang === "en" ? "Time" : "时间",
         yUnit: "",
-        xTicks: 6,
+        xTicks: mode === "realtime" ? 7 : 6,
       });
       window.CycleAIUI.mount(
         document.getElementById("aiWaveHost"),

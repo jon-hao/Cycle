@@ -505,19 +505,14 @@ window.CycleKondratiev = (function () {
     return [...by.values()].sort((a, b) => String(a.d).localeCompare(String(b.d)));
   }
 
-  function histOf(rows, i, key) {
-    return rows
-      .slice(0, i + 1)
-      .filter((r) => r[key] != null)
-      .map((r) => ({ d: r.d, v: r[key] }));
-  }
-
-  function lastOf(list) {
-    return list.length ? list[list.length - 1].v : null;
+  function pushRoll(buf, d, v, max) {
+    if (v == null || Number.isNaN(Number(v))) return;
+    buf.push({ d, v: Number(v) });
+    if (buf.length > max) buf.splice(0, buf.length - max);
   }
 
   /**
-   * 实时模型曲线：按月对齐多序列，逐步估计阶段高度
+   * 实时模型曲线：按月对齐多序列，约 40 年跨度；O(n) 滚动窗口
    * （恐贪只用于最新点）
    */
   function realtimeSeries(macro, fg, country) {
@@ -529,56 +524,90 @@ window.CycleKondratiev = (function () {
       return [{ d: String(Math.round(now.year)), v: now.level }];
     }
 
+    const roll = {
+      cpi: [],
+      core: [],
+      rate: [],
+      ppi: [],
+      unrate: [],
+      payrolls: [],
+      indpro: [],
+      retail: [],
+      curve: [],
+      m2: [],
+      gdp: [],
+      housing: [],
+      credit: [],
+      claims: [],
+    };
+    const MAX = 36;
     const pts = [];
+
     for (let i = 0; i < rows.length; i++) {
-      const cpiH = histOf(rows, i, "cpi");
-      const coreH = histOf(rows, i, "core");
-      const rateH = histOf(rows, i, "rate");
-      const ppiH = histOf(rows, i, "ppi");
-      const unrateH = histOf(rows, i, "unrate");
-      const payrollsH = histOf(rows, i, "payrolls");
-      const indproH = histOf(rows, i, "indpro");
-      const retailH = histOf(rows, i, "retail");
-      const curveH = histOf(rows, i, "curve");
-      const m2H = histOf(rows, i, "m2");
-      const gdpH = histOf(rows, i, "gdp");
-      const housingH = histOf(rows, i, "housing");
-      const creditH = histOf(rows, i, "credit");
-      const claimsH = histOf(rows, i, "claims");
+      const row = rows[i];
+      pushRoll(roll.cpi, row.d, row.cpi, MAX);
+      pushRoll(roll.core, row.d, row.core, MAX);
+      pushRoll(roll.rate, row.d, row.rate, MAX);
+      pushRoll(roll.ppi, row.d, row.ppi, MAX);
+      pushRoll(roll.unrate, row.d, row.unrate, MAX);
+      pushRoll(roll.payrolls, row.d, row.payrolls, MAX);
+      pushRoll(roll.indpro, row.d, row.indpro, MAX);
+      pushRoll(roll.retail, row.d, row.retail, MAX);
+      pushRoll(roll.curve, row.d, row.curve, MAX);
+      pushRoll(roll.m2, row.d, row.m2, MAX);
+      pushRoll(roll.gdp, row.d, row.gdp, MAX);
+      pushRoll(roll.housing, row.d, row.housing, MAX);
+      pushRoll(roll.credit, row.d, row.credit, MAX);
+      pushRoll(roll.claims, row.d, row.claims, MAX);
+
       const snap = {
-        cpiYoY: lastOf(cpiH),
-        inflation: lastOf(cpiH),
-        coreCpiYoY: lastOf(coreH),
-        policyRate: lastOf(rateH),
-        ppiYoY: lastOf(ppiH),
-        unrate: lastOf(unrateH),
-        payrollsYoY: lastOf(payrollsH),
-        indproYoY: lastOf(indproH),
-        retailYoY: lastOf(retailH),
-        yieldCurve: lastOf(curveH),
-        m2YoY: lastOf(m2H),
-        gdpYoY: lastOf(gdpH),
-        housingYoY: lastOf(housingH),
-        creditYoY: lastOf(creditH),
-        claims: lastOf(claimsH),
-        cpiHistory: cpiH,
-        coreCpiHistory: coreH,
-        rateHistory: rateH,
-        ppiHistory: ppiH,
-        unrateHistory: unrateH,
-        payrollsYoYHistory: payrollsH,
-        indproYoYHistory: indproH,
-        retailYoYHistory: retailH,
-        yieldCurveHistory: curveH,
-        m2YoYHistory: m2H,
-        gdpYoYHistory: gdpH,
-        housingYoYHistory: housingH,
-        creditYoYHistory: creditH,
-        claimsHistory: claimsH,
+        cpiYoY: roll.cpi.length ? roll.cpi[roll.cpi.length - 1].v : null,
+        inflation: roll.cpi.length ? roll.cpi[roll.cpi.length - 1].v : null,
+        coreCpiYoY: roll.core.length ? roll.core[roll.core.length - 1].v : null,
+        policyRate: roll.rate.length ? roll.rate[roll.rate.length - 1].v : null,
+        ppiYoY: roll.ppi.length ? roll.ppi[roll.ppi.length - 1].v : null,
+        unrate: roll.unrate.length ? roll.unrate[roll.unrate.length - 1].v : null,
+        payrollsYoY: roll.payrolls.length
+          ? roll.payrolls[roll.payrolls.length - 1].v
+          : null,
+        indproYoY: roll.indpro.length
+          ? roll.indpro[roll.indpro.length - 1].v
+          : null,
+        retailYoY: roll.retail.length
+          ? roll.retail[roll.retail.length - 1].v
+          : null,
+        yieldCurve: roll.curve.length
+          ? roll.curve[roll.curve.length - 1].v
+          : null,
+        m2YoY: roll.m2.length ? roll.m2[roll.m2.length - 1].v : null,
+        gdpYoY: roll.gdp.length ? roll.gdp[roll.gdp.length - 1].v : null,
+        housingYoY: roll.housing.length
+          ? roll.housing[roll.housing.length - 1].v
+          : null,
+        creditYoY: roll.credit.length
+          ? roll.credit[roll.credit.length - 1].v
+          : null,
+        claims: roll.claims.length
+          ? roll.claims[roll.claims.length - 1].v
+          : null,
+        cpiHistory: roll.cpi.slice(),
+        coreCpiHistory: roll.core.slice(),
+        rateHistory: roll.rate.slice(),
+        ppiHistory: roll.ppi.slice(),
+        unrateHistory: roll.unrate.slice(),
+        payrollsYoYHistory: roll.payrolls.slice(),
+        indproYoYHistory: roll.indpro.slice(),
+        retailYoYHistory: roll.retail.slice(),
+        yieldCurveHistory: roll.curve.slice(),
+        m2YoYHistory: roll.m2.slice(),
+        gdpYoYHistory: roll.gdp.slice(),
+        housingYoYHistory: roll.housing.slice(),
+        creditYoYHistory: roll.credit.slice(),
+        claimsHistory: roll.claims.slice(),
       };
       const fgSnap = i === rows.length - 1 && fg ? fg : null;
       const m = waveAtRealtime(snap, fgSnap, code);
-      pts.push({ d: rows[i].d, v: m.level });
+      pts.push({ d: row.d, v: m.level });
     }
     return pts.length ? pts : null;
   }
