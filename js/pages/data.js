@@ -138,7 +138,6 @@ window.CyclePages.data = (function () {
     const series =
       window.CycleKondratiev.seriesForMode(mode, k, macro, fg) ||
       window.CycleKondratiev.longWaveSeries(calYear, country);
-    const pill = window.CycleKondratiev.pillText(k);
     const theme =
       k.theme ||
       window.CycleKondratiev.themeText(
@@ -160,8 +159,6 @@ window.CyclePages.data = (function () {
         : String(calYear);
     window.CycleUI.openModal(`
       <div class="sheet-head"><h2 class="card-title">${window.t("kondratiev")}</h2><button type="button" class="icon-btn" data-close>×</button></div>
-      <p class="card-date"><span class="pill phase-${k.phaseKey}">${pill}</span>
-        <span class="card-label"> · ${mode === "realtime" ? window.t("kModelRealtime") : window.t("kModelSchematic")}</span></p>
       ${cycleSignalHtml(k)}
       <p class="card-content">${theme} · ${window.t(k.phaseKey + "Desc")}</p>
       ${scoreLine}
@@ -329,9 +326,6 @@ window.CyclePages.data = (function () {
 
     const fgVal = fg ? Math.round(fg.value) : null;
     const trend = fg ? fgTrend(fg.history) : 0;
-    const modelHint =
-      mode === "realtime" ? window.t("kRealtimeHint") : window.t("kSchematicHint");
-
     root.innerHTML = `
       <div class="hero-row">
         <section class="panel k-panel" id="kPanel">
@@ -342,8 +336,6 @@ window.CyclePages.data = (function () {
           <button type="button" class="k-hit" id="openWave" aria-label="${window.t("kondratiev")}">
             <svg id="kQuad" class="k-quad"></svg>
           </button>
-          ${cycleSignalHtml(k)}
-          <p class="k-model-note">${modelHint}</p>
         </section>
 
         <section class="metric-card fg-card ${fg ? "" : "is-missing"}" data-metric="fear" role="button" tabindex="0">
