@@ -943,6 +943,14 @@ input {
   margin-bottom: 8px;
 }
 
+.ai-toggle.is-locked,
+.ai-toggle:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--muted) 8%, transparent);
+}
+
 /* —— 恐惧贪婪仪表 —— */
 .fg-card {
   cursor: pointer;

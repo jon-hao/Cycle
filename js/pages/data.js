@@ -92,6 +92,9 @@ window.CyclePages.data = (function () {
       window.CycleCharts.lineChart(document.getElementById("waveChart"), series, {
         color: "#0f6e56",
         blinkAt: String(Math.round(k.year)),
+        xUnit: window.CycleState.lang === "zh" ? "年" : "Year",
+        yUnit: "",
+        xTicks: 6,
       });
       if (withMeta) {
         window.CycleAIUI.mount(document.getElementById("aiMacroHost"), "wave", {
@@ -109,7 +112,7 @@ window.CyclePages.data = (function () {
     });
   }
 
-  function openSeriesModal(title, series, extraHtml, aiPayload) {
+  function openSeriesModal(title, series, extraHtml, aiPayload, chartOpts) {
     if (!series || !series.length) {
       window.CycleUI.openModal(`
         <div class="sheet-head"><h2 class="card-title">${title}</h2><button type="button" class="icon-btn" data-close>×</button></div>
@@ -124,7 +127,18 @@ window.CyclePages.data = (function () {
       <div class="ai-host" id="aiMetricHost"></div>
     `);
     requestAnimationFrame(() => {
-      window.CycleCharts.lineChart(document.getElementById("metricChart"), series);
+      window.CycleCharts.lineChart(
+        document.getElementById("metricChart"),
+        series,
+        Object.assign(
+          {
+            yUnit: "%",
+            xUnit: window.CycleState.lang === "zh" ? "时间" : "Time",
+            xTicks: 5,
+          },
+          chartOpts || {}
+        )
+      );
       window.CycleAIUI.mount(document.getElementById("aiMetricHost"), "macro", aiPayload);
     });
   }
@@ -185,7 +199,7 @@ window.CyclePages.data = (function () {
 
       <section class="metric-card fg-card metric-full ${fg ? "" : "is-missing"}" data-metric="fear">
         <div class="metric-top"><span class="card-title">${window.t("fearGreed")}</span>
-          <span class="card-date">${fg ? window.t(fgStageKey(fg.value)) : ""}</span></div>
+          <span class="metric-open card-date">${fg ? window.t("openChart") : ""}</span></div>
         ${
           fg
             ? `<svg id="fgGauge" class="fg-gauge"></svg>`

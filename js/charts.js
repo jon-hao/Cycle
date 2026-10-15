@@ -6,15 +6,47 @@ window.CycleCharts = (function () {
     );
   }
 
+  function formatTickLabel(raw) {
+    const s = String(raw);
+    if (/^\d{4}$/.test(s)) return s;
+    if (/^\d{4}-\d{2}/.test(s)) return s.slice(0, 7);
+    if (s.length > 7) return s.slice(0, 7);
+    return s;
+  }
+
+  /** 均匀选取横轴刻度下标，首尾必含，中间留白 */
+  function pickXTicks(n, target) {
+    if (n <= 1) return [0];
+    const want = Math.max(2, Math.min(target || 5, n));
+    if (n <= want) return Array.from({ length: n }, (_, i) => i);
+    const idxs = [];
+    for (let k = 0; k < want; k++) {
+      idxs.push(Math.round((k * (n - 1)) / (want - 1)));
+    }
+    return [...new Set(idxs)];
+  }
+
   function lineChart(canvas, points, opts) {
     const o = Object.assign(
       {
         color: themeColor("--accent-2", "#3d8bfd"),
-        pad: 36,
-        blinkAt: null, // 日期字符串，用于闪烁当前节点
+        padL: 48,
+        padR: 16,
+        padT: 28,
+        padB: 36,
+        blinkAt: null,
+        xUnit: "",
+        yUnit: "",
+        xTicks: 5,
       },
       opts || {}
     );
+    if (o.pad != null) {
+      o.padL = o.padL || o.pad;
+      o.padR = o.padR || o.pad / 2;
+      o.padT = o.padT || o.pad;
+      o.padB = o.padB || o.pad;
+    }
     if (!points || !points.length) return { destroy() {} };
 
     let blinkIdx = points.length - 1;
@@ -31,7 +63,7 @@ window.CycleCharts = (function () {
     function draw() {
       const dpr = window.devicePixelRatio || 1;
       const w = canvas.clientWidth || 320;
-      const h = canvas.clientHeight || 200;
+      const h = canvas.clientHeight || 220;
       canvas.width = Math.floor(w * dpr);
       canvas.height = Math.floor(h * dpr);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -41,23 +73,29 @@ window.CycleCharts = (function () {
       const min = Math.min(...vals);
       const max = Math.max(...vals);
       const span = max - min || 1;
-      const pad = o.pad;
-      const iw = w - pad * 2;
-      const ih = h - pad * 2;
+      const padL = o.padL;
+      const padR = o.padR;
+      const padT = o.padT;
+      const padB = o.padB;
+      const iw = w - padL - padR;
+      const ih = h - padT - padB;
+      const ink = themeColor("--ink", "#111");
+      const muted = themeColor("--muted", "#888");
+      const line = themeColor("--line", "#ccc");
 
-      ctx.strokeStyle = themeColor("--line", "#ccc");
+      ctx.strokeStyle = line;
       ctx.lineWidth = 1;
       for (let i = 0; i <= 4; i++) {
-        const y = pad + (ih * i) / 4;
+        const y = padT + (ih * i) / 4;
         ctx.beginPath();
-        ctx.moveTo(pad, y);
-        ctx.lineTo(w - pad, y);
+        ctx.moveTo(padL, y);
+        ctx.lineTo(w - padR, y);
         ctx.stroke();
       }
 
       const xy = points.map((p, i) => ({
-        x: pad + (iw * i) / Math.max(1, points.length - 1),
-        y: pad + ih - ((p.v - min) / span) * ih,
+        x: padL + (iw * i) / Math.max(1, points.length - 1),
+        y: padT + ih - ((p.v - min) / span) * ih,
         p,
       }));
 
@@ -67,8 +105,8 @@ window.CycleCharts = (function () {
       ctx.lineWidth = 2.4;
       ctx.stroke();
 
-      ctx.lineTo(xy[xy.length - 1].x, pad + ih);
-      ctx.lineTo(xy[0].x, pad + ih);
+      ctx.lineTo(xy[xy.length - 1].x, padT + ih);
+      ctx.lineTo(xy[0].x, padT + ih);
       ctx.closePath();
       if (o.color.startsWith("#")) {
         ctx.fillStyle = o.color + "24";
@@ -77,7 +115,6 @@ window.CycleCharts = (function () {
       }
       ctx.fill();
 
-      // 当前节点闪烁
       if (o.blinkAt != null && xy[blinkIdx]) {
         const pulse =
           0.35 + 0.65 * (0.5 + 0.5 * Math.sin((performance.now() - state.t0) / 280));
@@ -95,9 +132,9 @@ window.CycleCharts = (function () {
       const i = Math.max(0, Math.min(points.length - 1, state.idx));
       const cur = xy[i];
       ctx.beginPath();
-      ctx.moveTo(cur.x, pad);
-      ctx.lineTo(cur.x, pad + ih);
-      ctx.strokeStyle = themeColor("--muted", "#888");
+      ctx.moveTo(cur.x, padT);
+      ctx.lineTo(cur.x, padT + ih);
+      ctx.strokeStyle = muted;
       ctx.setLineDash([4, 4]);
       ctx.stroke();
       ctx.setLineDash([]);
@@ -106,21 +143,59 @@ window.CycleCharts = (function () {
       ctx.fillStyle = o.color;
       ctx.fill();
 
-      ctx.fillStyle = themeColor("--ink", "#111");
+      // 顶部读数
+      ctx.fillStyle = ink;
       ctx.font = "12px 'Microsoft YaHei', sans-serif";
       ctx.textAlign = "left";
-      ctx.fillText(`${cur.p.d}  ·  ${cur.p.v.toFixed(2)}`, pad, 18);
-      ctx.fillText(max.toFixed(1), 4, pad + 8);
-      ctx.fillText(min.toFixed(1), 4, pad + ih);
+      const yUnit = o.yUnit || "";
+      ctx.fillText(
+        `${cur.p.d}  ·  ${cur.p.v.toFixed(2)}${yUnit}`,
+        padL,
+        16
+      );
+
+      // Y 轴刻度 + 单位
+      ctx.fillStyle = muted;
+      ctx.font = "11px 'Microsoft YaHei', sans-serif";
+      ctx.textAlign = "right";
+      for (let g = 0; g <= 4; g++) {
+        const val = max - (span * g) / 4;
+        const y = padT + (ih * g) / 4;
+        ctx.fillText(val.toFixed(1) + yUnit, padL - 6, y + 4);
+      }
+      if (o.yUnit) {
+        ctx.textAlign = "left";
+        ctx.fillText(o.yUnit, 4, padT - 8);
+      }
+
+      // X 轴刻度 + 单位
+      const ticks = pickXTicks(points.length, o.xTicks);
+      ctx.textAlign = "center";
+      ctx.fillStyle = muted;
+      ticks.forEach((ti) => {
+        const pt = xy[ti];
+        if (!pt) return;
+        ctx.beginPath();
+        ctx.moveTo(pt.x, padT + ih);
+        ctx.lineTo(pt.x, padT + ih + 4);
+        ctx.strokeStyle = line;
+        ctx.stroke();
+        ctx.fillText(formatTickLabel(pt.p.d), pt.x, padT + ih + 16);
+      });
+      if (o.xUnit) {
+        ctx.textAlign = "right";
+        ctx.fillText(o.xUnit, w - padR, h - 6);
+      }
     }
 
     function posToIndex(clientX) {
       const rect = canvas.getBoundingClientRect();
       const w = rect.width;
-      const pad = o.pad;
-      const iw = w - pad * 2;
+      const padL = o.padL;
+      const padR = o.padR;
+      const iw = w - padL - padR;
       const x = clientX - rect.left;
-      const t = (x - pad) / Math.max(1, iw);
+      const t = (x - padL) / Math.max(1, iw);
       return Math.round(Math.max(0, Math.min(1, t)) * (points.length - 1));
     }
 
@@ -292,12 +367,26 @@ window.CycleCharts = (function () {
       return 180 - (Math.max(0, Math.min(100, v)) / 100) * 180;
     }
 
+    // 红 / 黄 / 绿 / 深绿
+    const STAGE_COLORS = {
+      fgExtremeFear: "#c0392b",
+      fgFear: "#e6b422",
+      fgGreed: "#27ae60",
+      fgExtremeGreed: "#1e8449",
+    };
     const segments = [
-      { from: 180, to: 135, color: "#c0392b", key: "fgExtremeFear" },
-      { from: 135, to: 90, color: "#e67e22", key: "fgFear" },
-      { from: 90, to: 45, color: "#27ae60", key: "fgGreed" },
-      { from: 45, to: 0, color: "#1e8449", key: "fgExtremeGreed" },
+      { from: 180, to: 135, color: STAGE_COLORS.fgExtremeFear, key: "fgExtremeFear" },
+      { from: 135, to: 90, color: STAGE_COLORS.fgFear, key: "fgFear" },
+      { from: 90, to: 45, color: STAGE_COLORS.fgGreed, key: "fgGreed" },
+      { from: 45, to: 0, color: STAGE_COLORS.fgExtremeGreed, key: "fgExtremeGreed" },
     ];
+
+    function stageKeyOf(val) {
+      if (val < 25) return "fgExtremeFear";
+      if (val < 50) return "fgFear";
+      if (val < 75) return "fgGreed";
+      return "fgExtremeGreed";
+    }
 
     segments.forEach((s) => {
       el("path", {
@@ -347,6 +436,7 @@ window.CycleCharts = (function () {
     el("circle", { cx, cy, r: 7, fill: "var(--ink)" });
     el("circle", { cx: nx.toFixed(1), cy: ny.toFixed(1), r: 5, fill: "var(--accent)" });
 
+    const numColor = STAGE_COLORS[stageKeyOf(v)];
     el(
       "text",
       {
@@ -355,7 +445,7 @@ window.CycleCharts = (function () {
         "text-anchor": "middle",
         "font-size": "30",
         "font-weight": "700",
-        fill: "var(--ink)",
+        fill: numColor,
         "font-family": "Microsoft YaHei, sans-serif",
       },
       String(Math.round(v))
