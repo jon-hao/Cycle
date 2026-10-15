@@ -282,7 +282,8 @@ window.CyclePages.data = (function () {
             fg
               ? `<svg id="fgGaugeModal" class="fg-gauge"></svg>`
               : "",
-            aiPayload
+            aiPayload,
+            { yUnit: "", xTicks: 6 }
           );
           if (fg) {
             requestAnimationFrame(() => {
