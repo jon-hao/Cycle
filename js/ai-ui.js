@@ -8,12 +8,21 @@ window.CycleAIUI = (function () {
     }
   }
 
+  function setBox(box, text, asMd) {
+    if (!box) return;
+    if (asMd && window.CycleMD) {
+      box.innerHTML = window.CycleMD.render(text);
+    } else {
+      box.textContent = text;
+    }
+  }
+
   function mount(host, kind, payload) {
     if (!host) return;
     host.classList.add("ai-fold");
     host.innerHTML = `
       <button type="button" class="ai-toggle" aria-expanded="false">${window.t("viewAI")}</button>
-      <pre class="ai-box" hidden></pre>
+      <div class="ai-box" hidden></div>
     `;
     const btn = host.querySelector(".ai-toggle");
     const box = host.querySelector(".ai-box");
@@ -51,20 +60,23 @@ window.CycleAIUI = (function () {
       box.hidden = false;
       if (loaded || loading) return;
       loading = true;
-      box.textContent = window.t("askAI");
+      setBox(box, window.t("askAI"), false);
       const res = await window.CycleLLM.interpret(
         kind,
         payload,
         window.CycleState.lang,
         (p, text) => {
           const pct = Math.round((p || 0) * 100);
-          box.textContent =
+          setBox(
+            box,
             window.t("aiLoadingModel") +
-            (pct ? ` ${pct}%` : "") +
-            (text ? `\n${text}` : "");
+              (pct ? ` ${pct}%` : "") +
+              (text ? `\n${text}` : ""),
+            false
+          );
         }
       );
-      box.textContent = res.text;
+      setBox(box, res.text, true);
       loaded = true;
       loading = false;
     });

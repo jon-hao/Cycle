@@ -1157,7 +1157,7 @@ button,
 }
 
 .ai-box {
-  white-space: pre-wrap;
+  white-space: normal;
   background: var(--bg);
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -1166,6 +1166,34 @@ button,
   font-size: 0.9rem;
   line-height: 1.55;
   font-family: var(--font);
+}
+
+.ai-box strong,
+.agent-msg strong {
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.ai-box em,
+.agent-msg em {
+  font-style: italic;
+}
+
+.ai-box code,
+.agent-msg code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.88em;
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--line) 55%, transparent);
+}
+
+.ai-box .md-h2,
+.ai-box .md-h3,
+.agent-msg .md-h2,
+.agent-msg .md-h3 {
+  font-weight: 700;
+  margin: 0.35em 0 0.15em;
 }
 
 .kv {

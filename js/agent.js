@@ -20,10 +20,19 @@ window.CycleAgent = (function () {
   }
 
   function escapeHtml(s) {
-    return String(s || "")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;");
+    return window.CycleMD
+      ? window.CycleMD.escapeHtml(s)
+      : String(s || "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;");
+  }
+
+  function formatMsg(m) {
+    if (m.role === "assistant" && window.CycleMD) {
+      return window.CycleMD.render(m.content);
+    }
+    return escapeHtml(m.content);
   }
 
   function contextSnippet() {
@@ -134,9 +143,7 @@ window.CycleAgent = (function () {
         ? msgs
             .map(
               (m) =>
-                `<div class="agent-msg ${escapeHtml(m.role)}">${escapeHtml(
-                  m.content
-                )}</div>`
+                `<div class="agent-msg ${escapeHtml(m.role)}">${formatMsg(m)}</div>`
             )
             .join("")
         : `<div class="agent-msg system">${escapeHtml(window.t("agentEmpty"))}</div>`;
