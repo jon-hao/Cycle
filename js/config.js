@@ -1,4 +1,4 @@
 window.CycleConfig = {
-  // Cycle Lambda Function URL。按 ?flow= 分流，如 news。
-  apiBase: "https://zmlvhs6txhj7z3hfoxegfkkdfu0qdraw.lambda-url.ap-southeast-1.on.aws",
+  // HApi Lambda Function URL。按 ?flow= 分流，如 news。
+  apiBase: "https://xo5q4q4crobliumjn4gobebto40djjru.lambda-url.ap-southeast-1.on.aws",
 };

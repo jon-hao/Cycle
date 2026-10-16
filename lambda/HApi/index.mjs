@@ -1,5 +1,5 @@
 /**
- * Cycle API 入口：按 flow 分流。
+ * HApi 入口：按 flow 分流（账号级共用 API）。
  *
  * 调用方式（任选其一）：
  *   GET  ?flow=news

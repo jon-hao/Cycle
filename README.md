@@ -38,7 +38,7 @@
 | 下次 FOMC / 日历 / 美股假日 | [FinanceCalendar](https://www.financecalendar.com) + [PipAtlas](https://pipatlas.com) |
 | 恐慌贪婪（美） | [fearandgreedgraph.com](https://fearandgreedgraph.com)；中国暂无对等源 |
 | 全球年通胀兜底 | [World Bank](https://api.worldbank.org) `FP.CPI.TOTL.ZG`（JSONP） |
-| 重要新闻 | 金十[重要事件](https://topic17z2k407.jin10.com/topic/jin10_important_news.html)，经自建 Lambda `Cycle`（`js/config.js` 的 `apiBase` + `?flow=news`）。未配置时回退金十 RSS + Google News |
+| 重要新闻 | 金十[重要事件](https://topic17z2k407.jin10.com/topic/jin10_important_news.html)，经自建 Lambda `HApi`（`js/config.js` 的 `apiBase` + `?flow=news`）。未配置时回退金十 RSS + Google News |
 
 拿不到的序列统一显示「数据缺失 / Unavailable」。
 
@@ -51,22 +51,22 @@ python3 -m http.server 5174
 
 推送到 `main` 即由 GitHub Pages 发布。
 
-## Cycle API（Lambda Function URL）
+## HApi（Lambda Function URL）
 
-浏览器不能直接打金十等源站。`lambda/Cycle` 是统一入口，按 `flow` 分流：
+浏览器不能直接打金十等源站。`lambda/HApi` 是账号级共用入口，按 `flow` 分流。Lambda 每月免费额度（约 100 万次请求）是**按账号汇总**的，不是每个函数各一份，所以多项目共用一个 `HApi` 更划算。
 
 | 调用 | 说明 |
 |------|------|
 | `GET ?flow=news` / `POST {"flow":"news"}` | 金十重要事件 |
 | `flow=new` | `news` 的别名 |
 
-后续新能力：在 `lambda/Cycle/flows/` 加模块，并在 `index.mjs` 的 `FLOWS` 注册即可。
+后续新能力：在 `lambda/HApi/flows/` 加模块，并在 `index.mjs` 的 `FLOWS` 注册即可。
 
 不要把 AWS 登录密码交给任何人。本机安装 [AWS CLI](https://aws.amazon.com/cli/) 后，用 IAM 访问密钥或 `aws login` / SSO 登录，再执行：
 
 ```bash
-chmod +x lambda/Cycle/deploy.sh
-./lambda/Cycle/deploy.sh
+chmod +x lambda/HApi/deploy.sh
+./lambda/HApi/deploy.sh
 ```
 
-脚本会创建/更新函数 `Cycle`（默认区域 `ap-southeast-1`），删除旧的 `cycle-news`，并把 Function URL 写入 `js/config.js` 的 `apiBase`。Function URL 本身不另收费，落在 Lambda 每月免费额度里。
+脚本会创建/更新函数 `HApi`（默认区域 `ap-southeast-1`），删除旧的 `Cycle` / `cycle-news`，并把 Function URL 写入 `js/config.js` 的 `apiBase`。

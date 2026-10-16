@@ -1,12 +1,13 @@
 #!/bin/bash
-# 创建/更新 Lambda「Cycle」（按 flow 分流），并写回 js/config.js 的 apiBase。
+# 创建/更新 Lambda「HApi」（按 flow 分流），并写回 js/config.js 的 apiBase。
 # 不要把账号密码交给任何人。用 IAM 访问密钥或 aws login / SSO。
 set -euo pipefail
 
 REGION="${AWS_REGION:-ap-southeast-1}"
-FUNC="${CYCLE_FUNC:-Cycle}"
-ROLE="${CYCLE_ROLE:-Cycle-role}"
-OLD_FUNC="${CYCLE_OLD_FUNC:-cycle-news}"
+FUNC="${HAPI_FUNC:-HApi}"
+ROLE="${HAPI_ROLE:-HApi-role}"
+# 顺带清掉旧函数名（可空格分隔多个）
+OLD_FUNCS="${HAPI_OLD_FUNCS:-Cycle cycle-news}"
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 DIR="$(cd "$(dirname "$0")" && pwd)"
 
@@ -31,7 +32,7 @@ if ! aws iam get-role --role-name "$ROLE" >/dev/null 2>&1; then
   sleep 10
 fi
 
-ZIP="$(mktemp -t Cycle).zip"
+ZIP="$(mktemp -t HApi).zip"
 rm -f "$ZIP"
 (cd "$DIR" && zip -q -r "$ZIP" index.mjs flows)
 
@@ -92,12 +93,14 @@ aws lambda add-permission \
   --principal "*" \
   --region "$REGION" >/dev/null 2>&1 || true
 
-# 下线旧的单用途函数（若仍存在）
-if [ -n "$OLD_FUNC" ] && aws lambda get-function --function-name "$OLD_FUNC" --region "$REGION" >/dev/null 2>&1; then
-  aws lambda delete-function-url-config --function-name "$OLD_FUNC" --region "$REGION" >/dev/null 2>&1 || true
-  aws lambda delete-function --function-name "$OLD_FUNC" --region "$REGION" >/dev/null
-  echo "deleted old function: $OLD_FUNC"
-fi
+for OLD_FUNC in $OLD_FUNCS; do
+  if [ -n "$OLD_FUNC" ] && [ "$OLD_FUNC" != "$FUNC" ] && \
+    aws lambda get-function --function-name "$OLD_FUNC" --region "$REGION" >/dev/null 2>&1; then
+    aws lambda delete-function-url-config --function-name "$OLD_FUNC" --region "$REGION" >/dev/null 2>&1 || true
+    aws lambda delete-function --function-name "$OLD_FUNC" --region "$REGION" >/dev/null
+    echo "deleted old function: $OLD_FUNC"
+  fi
+done
 
 URL="$(aws lambda get-function-url-config --function-name "$FUNC" --region "$REGION" --query FunctionUrl --output text)"
 python3 - "$ROOT/js/config.js" "$URL" <<'PY'
@@ -105,7 +108,7 @@ import pathlib, sys
 path, url = sys.argv[1], sys.argv[2].rstrip("/")
 pathlib.Path(path).write_text(
     "window.CycleConfig = {\n"
-    "  // Cycle Lambda Function URL。按 ?flow= 分流，如 news。\n"
+    "  // HApi Lambda Function URL。按 ?flow= 分流，如 news。\n"
     f'  apiBase: "{url}",\n'
     "};\n",
     encoding="utf-8",
