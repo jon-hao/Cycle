@@ -83,7 +83,10 @@ export async function handler(event) {
     return json(405, { error: "method not allowed" });
   }
 
-  const payload = method === "POST" ? parseBody(event) : {};
+  const query = event?.queryStringParameters || {};
+  const body = method === "POST" ? parseBody(event) : {};
+  // GET 的 q / flow 等在 query；POST 可覆盖
+  const payload = Object.assign({}, query, body);
   const flow = resolveFlow(event, payload);
   const run = FLOWS[flow];
   if (!run) {
