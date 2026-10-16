@@ -1,5 +1,12 @@
 window.CycleState = {
-  country: localStorage.getItem("cycle-country") || "US",
+  country: (function () {
+    const raw = localStorage.getItem("cycle-country") || "US";
+    if (raw === "GLOBAL" || (raw !== "US" && raw !== "CN")) {
+      localStorage.setItem("cycle-country", "US");
+      return "US";
+    }
+    return raw;
+  })(),
   lang: (function () {
     const raw = localStorage.getItem("cycle-lang") || "zh";
     if (raw === "zh-Hans" || raw === "zh-CN") return "zh";
@@ -172,7 +179,6 @@ window.CycleSelect = (function () {
     return [
       { value: "US", label: window.t("countryUS"), flag: "🇺🇸" },
       { value: "CN", label: window.t("countryCN"), flag: "🇨🇳" },
-      { value: "GLOBAL", label: window.t("countryGLOBAL"), flag: "🌍" },
     ];
   }
 

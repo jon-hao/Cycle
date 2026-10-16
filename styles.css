@@ -896,10 +896,44 @@ button,
 .news-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px;
   align-items: center;
   color: var(--muted);
   font-size: 0.8rem;
+}
+
+.news-rank {
+  display: inline-flex;
+  min-width: 1.4em;
+  justify-content: center;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.news-rank.top-1 {
+  color: #e11d48;
+}
+
+.news-rank.top-2 {
+  color: #ea580c;
+}
+
+.news-rank.top-3 {
+  color: #ca8a04;
+}
+
+.news-modal-actions {
+  margin: 12px 0 4px;
+}
+
+.news-origin-btn {
+  display: inline-flex;
+  text-decoration: none;
+}
+
+.sheet-head .news-rank {
+  margin-right: 6px;
 }
 
 .seg {

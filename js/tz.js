@@ -20,12 +20,13 @@ window.CycleTZ = (function () {
     return d.toLocaleString(locale(), Object.assign({ hour12: false }, opts || {}));
   }
 
-  function formatTime(input) {
+  function formatTime(input, withSeconds) {
     const d = asDate(input);
     if (!d) return "—";
     return d.toLocaleTimeString(locale(), {
       hour: "2-digit",
       minute: "2-digit",
+      second: withSeconds ? "2-digit" : undefined,
       hour12: false,
     });
   }
@@ -42,7 +43,11 @@ window.CycleTZ = (function () {
   function formatNewsStamp(input) {
     const d = asDate(input);
     if (!d) return "—";
-    return `${formatYMD(d)} ${formatTime(d)}`;
+    const p = (n) => String(n).padStart(2, "0");
+    return (
+      `${d.getFullYear()}.${p(d.getMonth() + 1)}.${p(d.getDate())} ` +
+      `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+    );
   }
 
   /** ICS 使用本地浮点时间（按使用者时区） */

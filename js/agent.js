@@ -59,7 +59,7 @@ window.CycleAgent = (function () {
     if (lang === "en") {
       return [
         "You are Cycle Agent, a macro desk assistant.",
-        "Use the board context. Answer directly with concrete points.",
+        "Use the board context and any live web search snippets. Answer directly with concrete points.",
         "Format replies in Markdown: headings, **bold**, bullet lists when helpful.",
         "Never ask 'need more info?' or similar confirmation questions.",
         "If the user says yes / need / continue / ok, expand the previous topic with new details — do not repeat your last line.",
@@ -69,7 +69,7 @@ window.CycleAgent = (function () {
     if (lang === "zh-TW") {
       return [
         "你是 Cycle Agent，宏觀助手。",
-        "根據看板上下文直接回答，給出具體要點。",
+        "結合看板上下文與實時聯網檢索摘要直接回答，給出具體要點。",
         "請用 Markdown 排版：標題、**加粗**、必要時用列表。",
         "禁止問「需要更多資訊嗎」或類似確認句。",
         "若用戶說「需要/好/繼續/是/ok」，在上一話題上補充新細節，禁止重複上一句。",
@@ -78,12 +78,43 @@ window.CycleAgent = (function () {
     }
     return [
       "你是 Cycle Agent，宏观助手。",
-      "根据看板上下文直接回答，给出具体要点。",
+      "结合看板上下文与实时联网检索摘要直接回答，给出具体要点。",
       "请用 Markdown 排版：标题、**加粗**、必要时用列表。",
       "禁止问「需要更多信息吗」或类似确认句。",
       "若用户说「需要/好/继续/是/ok」，在上一话题上补充新细节，禁止重复上一句。",
       "不要喊买卖。除非用户要求展开，否则控制在约 180 字内。",
     ].join("");
+  }
+
+  function needsWebSearch(q) {
+    const t = String(q || "").trim();
+    if (!t || isAffirmShort(t)) return false;
+    return /最新|今天|今日|刚才|剛剛|现在|現在|为何|為什麼|为什么|金价|金價|油价|油價|非农|非農|加息|降息|美联储|美聯儲|行情|涨跌|漲跌|news|today|latest|why|fed|cpi|nfp|yield|market/i.test(
+      t
+    );
+  }
+
+  async function searchContext(q, lang) {
+    if (!window.CycleAPI || !window.CycleAPI.searchWeb || !needsWebSearch(q)) {
+      return "";
+    }
+    try {
+      const data = await window.CycleAPI.searchWeb(q);
+      const rows = (data && data.results) || [];
+      if (!rows.length) return "";
+      const lines = rows.slice(0, 6).map((r, i) => {
+        const snip = String(r.snippet || "").slice(0, 160);
+        return `${i + 1}. ${r.title || ""}${snip ? " — " + snip : ""}${
+          r.url ? " (" + r.url + ")" : ""
+        }`;
+      });
+      if (lang === "en") {
+        return "Live web search:\n" + lines.join("\n");
+      }
+      return "联网检索结果：\n" + lines.join("\n");
+    } catch (_) {
+      return "";
+    }
   }
 
   function isAffirmShort(text) {
@@ -102,7 +133,7 @@ window.CycleAgent = (function () {
     return /需要更多(信息|資訊)吗？?$|need more (info|information)\??$/i.test(t);
   }
 
-  function buildMessages(msgs, q, lang) {
+  function buildMessages(msgs, q, lang, webCtx) {
     const history = msgs
       .filter((m) => m.role === "user" || m.role === "assistant")
       .slice(0, -1)
@@ -112,7 +143,9 @@ window.CycleAgent = (function () {
         content: String(m.content || "").slice(0, 1200),
       }));
 
-    const ctx = `看板上下文：${contextSnippet()}`;
+    const ctxBits = [`看板上下文：${contextSnippet()}`];
+    if (webCtx) ctxBits.push(webCtx);
+    const ctx = ctxBits.join("\n\n");
     let userContent = q;
     if (isAffirmShort(q)) {
       userContent =
@@ -127,8 +160,8 @@ window.CycleAgent = (function () {
         role: "assistant",
         content:
           lang === "en"
-            ? "Understood. I will answer using that board context."
-            : "收到，我会结合看板上下文直接作答。",
+            ? "Understood. I will answer using that board context and any search notes."
+            : "收到，我会结合看板上下文与检索摘要直接作答。",
       },
       ...history,
       { role: "user", content: userContent },
@@ -211,15 +244,16 @@ window.CycleAgent = (function () {
         let reply = "";
         try {
           if (window.CycleLLM && window.CycleLLM.chat) {
+            const webCtx = await searchContext(q, lang);
             const live = await window.CycleLLM.chat(
               systemPrompt(lang),
-              buildMessages(msgs, q, lang)
+              buildMessages(msgs, q, lang, webCtx)
             );
             reply = (live && live.ok && live.text && live.text.trim()) || "";
             if (isLazyReply(reply)) {
               const retry = await window.CycleLLM.chat(
                 systemPrompt(lang),
-                buildMessages(msgs, q, lang).concat([
+                buildMessages(msgs, q, lang, webCtx).concat([
                   {
                     role: "user",
                     content:

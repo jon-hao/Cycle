@@ -1,5 +1,5 @@
 /**
- * 金十「重要事件」专题。
+ * 金十「重要事件」专题（sort=priority 的数组顺序即榜单排名）。
  * https://topic17z2k407.jin10.com/topic/jin10_important_news.html
  */
 
@@ -16,17 +16,35 @@ function guessCountry(text) {
   return "GLOBAL";
 }
 
-function splitFlash(content) {
-  const raw = String(content || "")
-    .replace(/<br\b[^>]*>/gi, "")
+function cleanText(s) {
+  return String(s || "")
+    .replace(/<br\b[^>]*>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
     .replace(/点击查看\.\.\./g, "")
+    .replace(/\u00a0/g, " ")
     .trim();
-  const m = raw.match(/^【([^】]+)】/);
-  if (!m) return { title: raw, summary: "" };
-  return {
-    title: m[1].trim(),
-    summary: raw.replace(/^【[^】]+】/, "").trim(),
-  };
+}
+
+/** 从 data.title / data.content 拆标题与正文 */
+function parseTitleContent(body) {
+  let title = cleanText(body && body.title);
+  let content = cleanText(body && body.content);
+  if (!title) {
+    const m = content.match(/^【([^】]+)】/);
+    if (m) {
+      title = m[1].trim();
+      content = content.replace(/^【[^】]+】/, "").trim();
+    } else {
+      title = content.slice(0, 100);
+      content = content.slice(title.length).trim();
+    }
+  } else {
+    content = content.replace(/^【[^】]+】/, "").trim();
+    if (content.startsWith(title)) {
+      content = content.slice(title.length).replace(/^[\s：:]+/, "").trim();
+    }
+  }
+  return { title, content };
 }
 
 function toISO(time) {
@@ -39,25 +57,27 @@ function toISO(time) {
 export function mapFlashes(rows) {
   if (!Array.isArray(rows)) return [];
   const out = [];
+  let rank = 0;
   for (const row of rows) {
     const flash = row && row.data;
     const body = flash && flash.data;
     if (!flash || !body || (flash.extras && flash.extras.ad)) continue;
-    const { title, summary } = splitFlash(body.title || body.content || "");
+    const { title, content } = parseTitleContent(body);
     if (!title) continue;
+    rank += 1;
     const id = String(row.item_id || flash.id || title);
-    const pic = body.pic && /^https?:/i.test(body.pic) ? body.pic : null;
     const link =
       (body.source_link && /^https?:/i.test(body.source_link) && body.source_link) ||
-      (flash.type === 0 ? "https://flash.jin10.com/detail/" + id : null);
-    const text = title + " " + summary;
+      "https://flash.jin10.com/detail/" + id;
+    const text = title + " " + content;
     out.push({
       id,
+      rank,
       title,
-      summary,
+      summary: content,
+      content,
       time: toISO(flash.time),
       link,
-      image: pic,
       important: true,
       countryGuess: guessCountry(text),
     });

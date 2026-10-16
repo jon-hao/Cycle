@@ -3,10 +3,12 @@
  * 下载状态写入 localStorage，刷新页面可续传/续显进度。
  */
 window.CycleLLM = (function () {
+  // 浏览器 WebGPU：偏中文宏观/金融对话的体积与质量折中（WebLLM MLC 预制）
   const MODEL_CANDIDATES = [
+    "Qwen2.5-1.5B-Instruct-q4f16_1-MLC",
     "Qwen3-0.6B-q4f16_1-MLC",
-    "Qwen2.5-0.5B-Instruct-q4f16_1-MLC",
     "Llama-3.2-1B-Instruct-q4f16_1-MLC",
+    "Qwen2.5-0.5B-Instruct-q4f16_1-MLC",
   ];
   const STATE_KEY = "cycle-llm-dl";
 

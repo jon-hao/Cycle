@@ -11,11 +11,13 @@
  */
 
 import { handleNews } from "./flows/news.mjs";
+import { handleSearch } from "./flows/search.mjs";
 import { withQuota, quotaStatus } from "./quota.mjs";
 
 const FLOWS = {
   news: handleNews,
   new: handleNews,
+  search: handleSearch,
   quota: async () => quotaStatus(),
 };
 

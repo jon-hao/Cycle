@@ -19,6 +19,14 @@ window.CyclePages.news = (function () {
       .replace(/>/g, "&gt;");
   }
 
+  function rankClass(rank) {
+    const r = Number(rank) || 0;
+    if (r === 1) return "news-rank top-1";
+    if (r === 2) return "news-rank top-2";
+    if (r === 3) return "news-rank top-3";
+    return "news-rank";
+  }
+
   async function mapPool(items, limit, fn) {
     const out = new Array(items.length);
     let i = 0;
@@ -62,7 +70,8 @@ window.CyclePages.news = (function () {
           return Object.assign({}, item, {
             title,
             titleRaw: item.title,
-            summaryRaw: item.summary,
+            summaryRaw: item.summary || item.content || "",
+            contentRaw: item.content || item.summary || "",
           });
         });
       }
@@ -78,7 +87,10 @@ window.CyclePages.news = (function () {
     box.innerHTML = list
       .map(
         (n) => `<article class="news-card" data-id="${encodeURIComponent(n.id)}">
-          <div class="news-meta"><time class="card-date">${formatTime(n.time)}</time></div>
+          <div class="news-meta">
+            <span class="${rankClass(n.rank)}" aria-label="#${n.rank || ""}">${n.rank || "·"}</span>
+            <time class="card-date">${formatTime(n.time)}</time>
+          </div>
           <h3 class="card-title">${escapeHtml(n.title)}</h3>
         </article>`
       )
@@ -92,41 +104,39 @@ window.CyclePages.news = (function () {
         if (!n) return;
 
         window.CycleUI.openModal(`
-          <div class="sheet-head"><h2 class="card-title">${escapeHtml(n.title)}</h2><button type="button" class="icon-btn" data-close>×</button></div>
+          <div class="sheet-head">
+            <h2 class="card-title"><span class="${rankClass(n.rank)}">${n.rank || ""}</span> ${escapeHtml(n.title)}</h2>
+            <button type="button" class="icon-btn" data-close>×</button>
+          </div>
           <p class="card-date">${formatTime(n.time)}</p>
           <p class="card-content" id="newsSummary">${window.t("translating")}</p>
-          <div id="newsExtra"></div>
+          <div class="news-modal-actions" id="newsExtra"></div>
           <div class="ai-host" id="aiNewsHost"></div>
         `);
 
-        let summary = n.summary;
+        let body = n.contentRaw || n.summaryRaw || n.content || n.summary || "";
         if (window.CycleTranslate) {
-          summary = await window.CycleTranslate.translateText(
-            n.summaryRaw || n.summary || "",
-            lang
-          );
-          n.summary = summary;
+          body = await window.CycleTranslate.translateText(body, lang);
+          n.summary = body;
         }
 
         const sumEl = document.getElementById("newsSummary");
-        if (sumEl) sumEl.textContent = summary || "";
+        if (sumEl) sumEl.textContent = body || "";
 
         const extra = document.getElementById("newsExtra");
         if (extra) {
-          const img = n.image
-            ? `<img class="news-modal-img" src="${escapeHtml(n.image)}" alt="" loading="lazy" />`
-            : "";
-          const link = n.link
-            ? `<a class="news-source-link" href="${escapeHtml(
-                n.link
-              )}" target="_blank" rel="noopener noreferrer">${window.t("sourceLink")}</a>`
-            : "";
-          extra.innerHTML = img + link;
+          if (n.link) {
+            extra.innerHTML = `<a class="btn news-origin-btn" href="${escapeHtml(
+              n.link
+            )}" target="_blank" rel="noopener noreferrer">${window.t("sourceLink")}</a>`;
+          } else {
+            extra.innerHTML = "";
+          }
         }
 
         window.CycleAIUI.mount(document.getElementById("aiNewsHost"), "news", {
           title: n.title,
-          summary: summary || "",
+          summary: body || "",
         });
       });
     });

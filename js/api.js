@@ -509,20 +509,28 @@ window.CycleAPI = (function () {
     return d.items;
   }
 
+  async function searchWeb(query) {
+    const base = cycleApiBase();
+    const q = String(query || "").trim();
+    if (!base || !q) return null;
+    const d = await getJSON(
+      base + "?flow=search&q=" + encodeURIComponent(q),
+      { timeout: 18000 }
+    );
+    if (!d || !Array.isArray(d.results)) return null;
+    return d;
+  }
+
   async function fetchImportantNews(country) {
     // 已配置 Function URL 时只用金十「重要事件」专题；否则回退 RSS
     if (cycleApiBase()) {
       const proxied = await fetchNewsProxy();
       if (!proxied || !proxied.length) return null;
-      let items = proxied.slice();
-      items.sort((a, b) => new Date(b.time) - new Date(a.time));
-      if (country && country !== "GLOBAL") {
-        const filtered = items.filter(
-          (n) => n.countryGuess === country || n.countryGuess === "GLOBAL"
-        );
-        items = filtered.length >= 8 ? filtered : items;
-      }
-      return items.slice(0, 60);
+      // 金十专题榜按 priority 名次展示，不按时间重排、不按国家裁掉前三
+      return proxied
+        .slice()
+        .sort((a, b) => (a.rank || 0) - (b.rank || 0))
+        .slice(0, 60);
     }
     const feeds = newsFeedsFor(country || "GLOBAL");
     const batches = await Promise.all(feeds.map((f) => fetchRssViaJson(f)));
@@ -706,6 +714,7 @@ window.CycleAPI = (function () {
     fetchMacro,
     fetchFearGreed,
     fetchImportantNews,
+    searchWeb,
     fetchCalendar,
     witchingDates,
   };
