@@ -629,17 +629,15 @@ window.CycleAPI = (function () {
   }
 
   async function fetchNewsProxy() {
-    // 服务端已短缓存 + SWR；前端只做一次快速重试，避免拖慢实时性
     let lastErr = null;
     for (let i = 0; i < 2; i++) {
       try {
-        const d = await hapi("news", {}, { timeout: 12000 });
+        const d = await hapi("news", {}, { timeout: 15000 });
         if (d && Array.isArray(d.items) && d.items.length) return d.items;
-        if (d && d.degraded && i === 0) continue;
       } catch (e) {
         lastErr = e;
       }
-      if (i === 0) await new Promise((r) => setTimeout(r, 200));
+      if (i === 0) await new Promise((r) => setTimeout(r, 250));
     }
     if (lastErr) console.warn("[Cycle] news proxy", lastErr);
     return null;

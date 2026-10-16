@@ -1,24 +1,10 @@
 /**
- * 全量看板缓存：刷新时预拉数据/新闻/日历，供 Agent 总体分析。
+ * Agent 用的轻量看板快照：不挡页面渲染，不参与 soft 复用。
+ * 页面数据一律走各自 API 实时拉取。
  */
 window.CycleBoard = (function () {
-  const KEY = "cycle-board-v1";
   let mem = null;
-
-  function loadLocal() {
-    try {
-      const raw = JSON.parse(localStorage.getItem(KEY) || "null");
-      return raw && typeof raw === "object" ? raw : null;
-    } catch (_) {
-      return null;
-    }
-  }
-
-  function saveLocal(data) {
-    try {
-      localStorage.setItem(KEY, JSON.stringify(data));
-    } catch (_) {}
-  }
+  let inflight = null;
 
   function rangeForCalendar() {
     const now = new Date();
@@ -55,7 +41,6 @@ window.CycleBoard = (function () {
       claims: m.claims,
       pmi: m.pmi,
       nextMeeting: m.nextMeeting || null,
-      source: m.source || null,
     };
   }
 
@@ -81,82 +66,66 @@ window.CycleBoard = (function () {
     }));
   }
 
-  async function preload() {
-    const country = (window.CycleState && window.CycleState.country) || "US";
-    const lang = (window.CycleState && window.CycleState.lang) || "zh";
-    const { from, to } = rangeForCalendar();
+  async function refresh() {
+    if (inflight) return inflight;
     const api = window.CycleAPI;
-    if (!api) return get();
+    if (!api) return null;
+    const { from, to } = rangeForCalendar();
+    inflight = Promise.all([
+      api.fetchMacro("US").catch(() => null),
+      api.fetchMacro("CN").catch(() => null),
+      api.fetchFearGreed("US").catch(() => null),
+      api.fetchImportantNews("US").catch(() => null),
+      api.fetchImportantNews("CN").catch(() => null),
+      api.fetchCalendar(from, to, "US").catch(() => null),
+      api.fetchCalendar(from, to, "CN").catch(() => null),
+    ])
+      .then(([macroUS, macroCN, fgUS, newsUS, newsCN, calUS, calCN]) => {
+        mem = {
+          at: Date.now(),
+          country: (window.CycleState && window.CycleState.country) || "US",
+          calRange: { from, to },
+          macroUS: snapshotMacro(macroUS),
+          macroCN: snapshotMacro(macroCN),
+          fearGreedUS:
+            fgUS && fgUS.value != null
+              ? { value: fgUS.value, labelKey: fgUS.labelKey, asOf: fgUS.asOf }
+              : null,
+          newsUS: snapshotNews(newsUS),
+          newsCN: snapshotNews(newsCN),
+          calendarUS: snapshotCal(calUS),
+          calendarCN: snapshotCal(calCN),
+        };
+        return mem;
+      })
+      .finally(() => {
+        inflight = null;
+      });
+    return inflight;
+  }
 
-    const [macroUS, macroCN, fgUS, newsUS, newsCN, calUS, calCN] =
-      await Promise.all([
-        api.fetchMacro("US").catch(() => null),
-        api.fetchMacro("CN").catch(() => null),
-        api.fetchFearGreed("US").catch(() => null),
-        api.fetchImportantNews("US").catch(() => null),
-        api.fetchImportantNews("CN").catch(() => null),
-        api.fetchCalendar(from, to, "US").catch(() => null),
-        api.fetchCalendar(from, to, "CN").catch(() => null),
-      ]);
-
-    mem = {
-      at: Date.now(),
-      lang,
-      country,
-      calRange: { from, to },
-      macroUS: snapshotMacro(macroUS),
-      macroCN: snapshotMacro(macroCN),
-      fearGreedUS:
-        fgUS && fgUS.value != null
-          ? { value: fgUS.value, labelKey: fgUS.labelKey, asOf: fgUS.asOf }
-          : null,
-      newsUS: snapshotNews(newsUS),
-      newsCN: snapshotNews(newsCN),
-      calendarUS: snapshotCal(calUS),
-      calendarCN: snapshotCal(calCN),
-      // 原始对象供页面 soft 复用（不写 localStorage）
-      _raw: {
-        macroUS,
-        macroCN,
-        fgUS,
-        newsUS,
-        newsCN,
-        calUS,
-        calCN,
-      },
-    };
-    const persist = Object.assign({}, mem);
-    delete persist._raw;
-    saveLocal(persist);
-    return mem;
+  /** 不阻塞；页面勿 await */
+  function warmInBackground() {
+    refresh().catch(() => null);
   }
 
   function get() {
-    if (mem) return mem;
-    mem = loadLocal();
     return mem;
   }
 
-  function rawFor(country) {
-    const b = get();
-    if (!b || !b._raw) return null;
-    const code = country === "CN" ? "CN" : "US";
-    return {
-      macro: code === "CN" ? b._raw.macroCN : b._raw.macroUS,
-      fg: code === "CN" ? null : b._raw.fgUS,
-      news: code === "CN" ? b._raw.newsCN : b._raw.newsUS,
-      calendar: code === "CN" ? b._raw.calendarCN : b._raw.calendarUS,
-    };
-  }
-
   function agentContext(lang) {
-    const b = get();
-    if (!b) return lang === "en" ? "No board cache yet." : "看板缓存尚未就绪。";
+    const b = mem;
+    if (!b) {
+      warmInBackground();
+      return lang === "en"
+        ? "Board snapshot still loading; answer from the live question and web search."
+        : "看板快照仍在后台拉取；请结合用户问题与联网检索作答。";
+    }
     const zh = lang !== "en";
-    const lines = [
+    return [
       zh
-        ? `缓存时间=${new Date(b.at || Date.now()).toISOString()}；当前国家=${b.country}`
-        : `cachedAt=${new Date(b.at || Date.now()).toISOString()}; country=${b.country}`,
+        ? `快照时间=${new Date(b.at || Date.now()).toISOString()}；国家=${b.country}`
+        : `snapshotAt=${new Date(b.at || Date.now()).toISOString()}; country=${b.country}`,
       "US macro: " + JSON.stringify(b.macroUS || {}),
       "CN macro: " + JSON.stringify(b.macroCN || {}),
       "US fearGreed: " + JSON.stringify(b.fearGreedUS || null),
@@ -164,10 +133,17 @@ window.CycleBoard = (function () {
       "CN news: " + JSON.stringify(b.newsCN || []),
       `calendar ${b.calRange && b.calRange.from}-${b.calRange && b.calRange.to} US: ` +
         JSON.stringify(b.calendarUS || []),
-      `calendar CN: ` + JSON.stringify(b.calendarCN || []),
-    ];
-    return lines.join("\n");
+      "calendar CN: " + JSON.stringify(b.calendarCN || []),
+    ].join("\n");
   }
 
-  return { preload, get, rawFor, agentContext };
+  return {
+    warmInBackground,
+    refresh,
+    get,
+    agentContext,
+    // 兼容旧调用名，但绝不挡首屏
+    preload: warmInBackground,
+    rawFor: () => null,
+  };
 })();

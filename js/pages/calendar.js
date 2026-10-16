@@ -4,7 +4,6 @@ window.CyclePages.calendar = (function () {
   let view = "day";
   let cursor = startOfDay(new Date());
   let pickerCursor = new Date();
-  let cache = null;
 
   function startOfDay(d) {
     const x = new Date(d);
@@ -35,19 +34,11 @@ window.CyclePages.calendar = (function () {
     );
   }
 
-  async function localizeEvents(events) {
-    if (!events || !events.length) return events || [];
+  function localizeEventsSync(events) {
     const lang = window.CycleState.lang;
-    const fn =
-      window.CycleCalI18n && window.CycleCalI18n.translateTitleAsync
-        ? window.CycleCalI18n.translateTitleAsync.bind(window.CycleCalI18n)
-        : null;
-    if (!fn) return events;
-    await Promise.all(
-      events.map(async (e) => {
-        e.displayTitle = await fn(e.title, lang, e);
-      })
-    );
+    (events || []).forEach((e) => {
+      e.displayTitle = window.CycleCalI18n.translateTitle(e.title, lang, e);
+    });
     return events;
   }
   function mondayOf(d) {
@@ -261,10 +252,8 @@ window.CyclePages.calendar = (function () {
     bindPicker();
   }
 
-  async function render(root, opts) {
-    const soft = opts && opts.soft;
-
-    async function paint(forceFetch) {
+  async function render(root) {
+    async function paint() {
       let from;
       let to;
       let heading;
@@ -279,15 +268,6 @@ window.CyclePages.calendar = (function () {
         heading =
           formatHeading(from).slice(0, 10) + " — " + formatHeading(addDays(to, -1)).slice(0, 10);
       }
-
-      const cacheKey =
-        view +
-        "|" +
-        from.toISOString().slice(0, 10) +
-        "|" +
-        window.CycleState.country +
-        "|" +
-        window.CycleState.lang;
 
       root.innerHTML = `
         <section class="panel">
@@ -307,46 +287,34 @@ window.CyclePages.calendar = (function () {
         </section>
       `;
 
-      let events;
-      if (
-        !forceFetch &&
-        soft &&
-        cache &&
-        cache.key === cacheKey &&
-        Array.isArray(cache.events)
-      ) {
-        events = cache.events;
-      } else {
-        events =
-          (await window.CycleAPI.fetchCalendar(
-            from.toISOString(),
-            to.toISOString(),
-            window.CycleState.country
-          )) || [];
+      let events =
+        (await window.CycleAPI.fetchCalendar(
+          from.toISOString(),
+          to.toISOString(),
+          window.CycleState.country
+        )) || [];
 
-        if (window.CycleState.country === "US") {
-          window.CycleAPI.witchingDates(cursor.getFullYear()).forEach((d) => {
-            const dt = new Date(d + "T13:00:00");
-            if (dt >= from && dt < to) {
-              events.push({
-                id: "witch-" + d,
-                country: "US",
-                datetime: dt.toISOString(),
-                title: window.t("witching"),
-                forecast: "—",
-                actual: null,
-                previous: "—",
-                importance: 3,
-                tag: "witching",
-                source: "local",
-              });
-            }
-          });
-        }
-        events.sort((a, b) => new Date(a.datetime) - new Date(b.datetime));
-        await localizeEvents(events);
-        cache = { key: cacheKey, events };
+      if (window.CycleState.country === "US") {
+        window.CycleAPI.witchingDates(cursor.getFullYear()).forEach((d) => {
+          const dt = new Date(d + "T13:00:00");
+          if (dt >= from && dt < to) {
+            events.push({
+              id: "witch-" + d,
+              country: "US",
+              datetime: dt.toISOString(),
+              title: window.t("witching"),
+              forecast: "—",
+              actual: null,
+              previous: "—",
+              importance: 3,
+              tag: "witching",
+              source: "local",
+            });
+          }
+        });
       }
+      events.sort((a, b) => new Date(a.datetime) - new Date(b.datetime));
+      localizeEventsSync(events);
 
       const byId = Object.fromEntries(events.map((e) => [String(e.id), e]));
       let body = "";
@@ -390,23 +358,23 @@ window.CyclePages.calendar = (function () {
       root.querySelectorAll("[data-view]").forEach((b) => {
         b.addEventListener("click", () => {
           view = b.dataset.view;
-          paint(true);
+          paint();
         });
       });
       root.querySelector("#prev").addEventListener("click", () => {
         cursor = view === "day" ? addDays(cursor, -1) : addDays(cursor, -7);
-        paint(true);
+        paint();
       });
       root.querySelector("#next").addEventListener("click", () => {
         cursor = view === "day" ? addDays(cursor, 1) : addDays(cursor, 7);
-        paint(true);
+        paint();
       });
       root.querySelector("#todayBtn").addEventListener("click", () => {
         cursor = startOfDay(new Date());
-        paint(true);
+        paint();
       });
       root.querySelector("#openPicker").addEventListener("click", () => {
-        openDatePicker(() => paint(true));
+        openDatePicker(() => paint());
       });
       root.querySelectorAll("[data-id]").forEach((el) => {
         el.addEventListener("click", (ev) => {
@@ -424,7 +392,7 @@ window.CyclePages.calendar = (function () {
       });
     }
 
-    await paint(!(soft && cache));
+    await paint();
   }
 
   return { render };

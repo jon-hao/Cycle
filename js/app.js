@@ -302,10 +302,10 @@ window.CycleSelect = (function () {
             els.ptr.textContent = window.t("refreshing");
           }
           try {
-            if (window.CycleBoard && window.CycleBoard.preload) {
-              await window.CycleBoard.preload().catch(() => null);
-            }
             await renderPage(false);
+            if (window.CycleBoard && window.CycleBoard.warmInBackground) {
+              window.CycleBoard.warmInBackground();
+            }
           } finally {
             refreshing = false;
             if (els.ptr) els.ptr.hidden = true;
@@ -442,14 +442,10 @@ window.CycleSelect = (function () {
       ? h
       : "data";
 
-    // 刷新时先拉全量看板进本地缓存，供 Agent 总体分析；失败不挡首屏
-    if (window.CycleBoard && window.CycleBoard.preload) {
-      try {
-        await window.CycleBoard.preload();
-      } catch (_) {}
+    await renderPage(false);
+    if (window.CycleBoard && window.CycleBoard.warmInBackground) {
+      window.CycleBoard.warmInBackground();
     }
-
-    await renderPage(false, { soft: true });
     requestAnimationFrame(() => moveIndicator(false));
   }
 

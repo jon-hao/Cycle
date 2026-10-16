@@ -3,7 +3,6 @@
  * ?flow=calendar&from=YYYY-MM-DD&to=YYYY-MM-DD&country=US|CN&rich=1
  */
 
-import { cacheGet, cacheSet, sourceCacheKey } from "../lib/cache.mjs";
 import { fetchJson } from "../lib/http.mjs";
 
 const FC = "https://www.financecalendar.com/wp-json/fc/v1";
@@ -154,11 +153,6 @@ export async function handleCalendar(payload) {
     return { flow: "calendar", events: [], error: "from/to required YYYY-MM-DD" };
   }
 
-  // 同一日期范围+国家共用一份，不按 app 复制
-  const key = sourceCacheKey("calendar", [from, to, country]);
-  const hit = await cacheGet(key);
-  if (hit) return hit;
-
   const year = from.slice(0, 4);
   const [fc, pa, holidays, ff] = await Promise.all([
     fetchJson(`${FC}/calendar?from=${from}&to=${to}&impact=high&limit=200`, {
@@ -269,6 +263,5 @@ export async function handleCalendar(payload) {
     witching: witchingDates(Number(year)),
     source: "FinanceCalendar / PipAtlas / ForexFactory / computed",
   };
-  await cacheSet(key, data, { freshSec: 120, softSec: 1800 });
   return data;
 }

@@ -1,7 +1,6 @@
 window.CyclePages = window.CyclePages || {};
 
 window.CyclePages.data = (function () {
-  let cache = null;
 
   function fmt(v, digits) {
     if (v == null || Number.isNaN(Number(v))) return window.t("missing");
@@ -363,30 +362,15 @@ window.CyclePages.data = (function () {
     ];
   }
 
-  async function render(root, opts) {
-    const soft = opts && opts.soft;
+  async function render(root) {
     root.innerHTML = skeleton();
     const code = window.CycleState.country;
     const mode = window.CycleState.kModel || "realtime";
 
-    let macro;
-    let fg;
-    if (soft && cache && cache.code === code) {
-      macro = cache.macro;
-      fg = cache.fg;
-    } else {
-      const board = window.CycleBoard && window.CycleBoard.rawFor(code);
-      if (soft && board && board.macro) {
-        macro = board.macro;
-        fg = board.fg;
-      } else {
-        [macro, fg] = await Promise.all([
-          window.CycleAPI.fetchMacro(code),
-          window.CycleAPI.fetchFearGreed(code),
-        ]);
-      }
-      cache = { code, macro, fg };
-    }
+    const [macro, fg] = await Promise.all([
+      window.CycleAPI.fetchMacro(code),
+      window.CycleAPI.fetchFearGreed(code),
+    ]);
 
     const k = window.CycleKondratiev.resolveModel(mode, code, macro, fg);
 
@@ -570,7 +554,7 @@ window.CyclePages.data = (function () {
       (v) => {
         window.CycleState.kModel = v;
         localStorage.setItem("cycle-k-model", v);
-        render(root, { soft: true });
+        render(root);
       }
     );
 

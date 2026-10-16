@@ -1,4 +1,3 @@
-import { cacheGet, cacheSet, sourceCacheKey } from "../lib/cache.mjs";
 import { fetchJson } from "../lib/http.mjs";
 
 const FG = "https://fearandgreedgraph.com/api/fear-greed";
@@ -8,9 +7,6 @@ export async function handleFearGreed(payload) {
   if (country === "CN") {
     return { flow: "feargreed", country: "CN", value: null, history: null };
   }
-  const key = sourceCacheKey("feargreed", ["US"]);
-  const hit = await cacheGet(key);
-  if (hit) return hit;
 
   const d = await fetchJson(FG, { timeout: 15000 });
   if (!d || !Array.isArray(d.values) || !d.values.length) {
@@ -29,7 +25,7 @@ export async function handleFearGreed(payload) {
   else if (value < 75) labelKey = "fgGreed";
   else labelKey = "fgExtremeGreed";
 
-  const data = {
+  return {
     flow: "feargreed",
     country: "US",
     value,
@@ -38,6 +34,4 @@ export async function handleFearGreed(payload) {
     asOf: d.asOf || null,
     source: "fearandgreedgraph via HApi",
   };
-  await cacheSet(key, data, { freshSec: 180, softSec: 3600 });
-  return data;
 }

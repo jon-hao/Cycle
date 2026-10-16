@@ -1,8 +1,6 @@
 window.CyclePages = window.CyclePages || {};
 
 window.CyclePages.news = (function () {
-  let cache = null;
-
   function formatTime(iso) {
     if (window.CycleTZ) return window.CycleTZ.formatNewsStamp(iso);
     try {
@@ -27,81 +25,12 @@ window.CyclePages.news = (function () {
     return "news-rank";
   }
 
-  async function mapPool(items, limit, fn) {
-    const out = new Array(items.length);
-    let i = 0;
-    async function worker() {
-      while (i < items.length) {
-        const idx = i++;
-        out[idx] = await fn(items[idx], idx);
-      }
-    }
-    const n = Math.min(limit, items.length) || 1;
-    await Promise.all(Array.from({ length: n }, () => worker()));
-    return out;
-  }
-
-  async function render(root, opts) {
-    const soft = opts && opts.soft;
-    const country = window.CycleState.country;
-    const lang = window.CycleState.lang;
-
-    root.innerHTML = `
-      <section class="panel">
-        <div class="panel-head"><h2 class="card-title">${window.t("navNews")}</h2></div>
-        <div class="news-list" id="newsList">
-          <div class="skel-block skel-list"></div>
-        </div>
-      </section>`;
-
-    let list;
-    if (soft && cache && cache.country === country && cache.lang === lang) {
-      list = cache.list;
-    } else {
-      let raw = null;
-      const board = window.CycleBoard && window.CycleBoard.rawFor(country);
-      if (soft && board && board.news && board.news.length) {
-        raw = board.news;
-      } else {
-        raw = await window.CycleAPI.fetchImportantNews(country);
-      }
-      if (!raw || !raw.length) {
-        list = [];
-      } else {
-        const box = root.querySelector("#newsList");
-        if (box) {
-          box.innerHTML = `<div class="empty">${window.t("translating")}</div>`;
-        }
-        // 国家列表内重新编号 1..n
-        const numbered = raw.slice(0, 40).map((item, idx) =>
-          Object.assign({}, item, {
-            displayRank: idx + 1,
-            jin10Rank: item.rank,
-          })
-        );
-        list = await mapPool(numbered, 4, async (item) => {
-          if (!window.CycleTranslate) return item;
-          const title = await window.CycleTranslate.translateText(
-            item.title,
-            lang
-          );
-          return Object.assign({}, item, {
-            title,
-            titleRaw: item.titleRaw || item.title,
-            summaryRaw: item.summary || item.content || "",
-            contentRaw: item.content || item.summary || "",
-          });
-        });
-      }
-      cache = { country, lang, list };
-    }
-
-    const box = root.querySelector("#newsList");
+  function paintList(box, list) {
+    if (!box) return;
     if (!list || !list.length) {
       box.innerHTML = `<div class="empty">${window.t("noNews")}</div>`;
       return;
     }
-
     box.innerHTML = list
       .map((n) => {
         const r = n.displayRank || n.rank || "·";
@@ -114,7 +43,9 @@ window.CyclePages.news = (function () {
         </article>`;
       })
       .join("");
+  }
 
+  function wireCards(root, list) {
     const byId = Object.fromEntries(list.map((n) => [n.id, n]));
     root.querySelectorAll(".news-card").forEach((card) => {
       card.addEventListener("click", async () => {
@@ -122,6 +53,7 @@ window.CyclePages.news = (function () {
         const n = byId[id];
         if (!n) return;
         const r = n.displayRank || n.rank || "";
+        const lang = window.CycleState.lang;
 
         window.CycleUI.openModal(`
           <div class="sheet-head">
@@ -138,8 +70,9 @@ window.CyclePages.news = (function () {
 
         let body = n.contentRaw || n.summaryRaw || n.content || n.summary || "";
         if (window.CycleTranslate) {
-          body = await window.CycleTranslate.translateText(body, lang);
-          n.summary = body;
+          try {
+            body = await window.CycleTranslate.translateText(body, lang);
+          } catch (_) {}
         }
 
         const sumEl = document.getElementById("newsSummary");
@@ -164,6 +97,58 @@ window.CyclePages.news = (function () {
           focus: n.title,
         });
       });
+    });
+  }
+
+  async function render(root) {
+    const country = window.CycleState.country;
+    const lang = window.CycleState.lang;
+
+    root.innerHTML = `
+      <section class="panel">
+        <div class="panel-head"><h2 class="card-title">${window.t("navNews")}</h2></div>
+        <div class="news-list" id="newsList">
+          <div class="skel-block skel-list"></div>
+        </div>
+      </section>`;
+
+    const box = root.querySelector("#newsList");
+    const raw = await window.CycleAPI.fetchImportantNews(country);
+    if (!raw || !raw.length) {
+      paintList(box, []);
+      return;
+    }
+
+    // 先原文上屏，避免翻译拖死加载
+    const list = raw.slice(0, 40).map((item, idx) =>
+      Object.assign({}, item, {
+        displayRank: idx + 1,
+        jin10Rank: item.rank,
+        titleRaw: item.title,
+        summaryRaw: item.summary || item.content || "",
+        contentRaw: item.content || item.summary || "",
+      })
+    );
+    paintList(box, list);
+    wireCards(root, list);
+
+    if (!window.CycleTranslate) return;
+    // 后台翻标题，完成再刷一次列表
+    Promise.all(
+      list.map(async (item) => {
+        try {
+          item.title = await window.CycleTranslate.translateText(
+            item.titleRaw || item.title,
+            lang
+          );
+        } catch (_) {}
+        return item;
+      })
+    ).then((done) => {
+      if (window.CycleState.page !== "news") return;
+      if (window.CycleState.country !== country) return;
+      paintList(box, done);
+      wireCards(root, done);
     });
   }
 

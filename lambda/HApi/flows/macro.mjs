@@ -3,7 +3,6 @@
  * 服务端聚合 MacroRadar / ChinaData / 东财，浏览器只打一次 HApi。
  */
 
-import { cacheGet, cacheSet, sourceCacheKey } from "../lib/cache.mjs";
 import { fetchJson, last, toPoints } from "../lib/http.mjs";
 
 const MR = "https://www.macroradar.io/api/v1";
@@ -245,11 +244,5 @@ async function buildCN() {
 
 export async function handleMacro(payload) {
   const country = String(payload.country || "US").toUpperCase() === "CN" ? "CN" : "US";
-  // 宏观序列按国家共用，不按 app 复制
-  const key = sourceCacheKey("macro", [country]);
-  const hit = await cacheGet(key);
-  if (hit) return hit;
-  const data = country === "CN" ? await buildCN() : await buildUS();
-  await cacheSet(key, data, { freshSec: 300, softSec: 3600 });
-  return data;
+  return country === "CN" ? await buildCN() : await buildUS();
 }
