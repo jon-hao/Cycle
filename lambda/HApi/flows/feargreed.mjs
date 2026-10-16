@@ -1,15 +1,14 @@
-import { cacheGet, cacheSet, cacheKey } from "../lib/cache.mjs";
+import { cacheGet, cacheSet, sourceCacheKey } from "../lib/cache.mjs";
 import { fetchJson } from "../lib/http.mjs";
 
 const FG = "https://fearandgreedgraph.com/api/fear-greed";
 
 export async function handleFearGreed(payload) {
-  const app = String(payload.app || "public").toLowerCase();
   const country = String(payload.country || "US").toUpperCase();
   if (country === "CN") {
     return { flow: "feargreed", country: "CN", value: null, history: null };
   }
-  const key = cacheKey(app, "feargreed", ["US"]);
+  const key = sourceCacheKey("feargreed", ["US"]);
   const hit = await cacheGet(key);
   if (hit) return hit;
 
@@ -39,6 +38,6 @@ export async function handleFearGreed(payload) {
     asOf: d.asOf || null,
     source: "fearandgreedgraph via HApi",
   };
-  await cacheSet(key, data, 180);
+  await cacheSet(key, data, { freshSec: 180, softSec: 3600 });
   return data;
 }

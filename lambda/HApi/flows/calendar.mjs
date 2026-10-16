@@ -3,7 +3,7 @@
  * ?flow=calendar&from=YYYY-MM-DD&to=YYYY-MM-DD&country=US|CN&rich=1
  */
 
-import { cacheGet, cacheSet, cacheKey } from "../lib/cache.mjs";
+import { cacheGet, cacheSet, sourceCacheKey } from "../lib/cache.mjs";
 import { fetchJson } from "../lib/http.mjs";
 
 const FC = "https://www.financecalendar.com/wp-json/fc/v1";
@@ -147,7 +147,6 @@ function dayKey(e) {
 }
 
 export async function handleCalendar(payload) {
-  const app = String(payload.app || "public").toLowerCase();
   const from = String(payload.from || "").slice(0, 10);
   const to = String(payload.to || "").slice(0, 10);
   const country = String(payload.country || "US").toUpperCase();
@@ -155,7 +154,8 @@ export async function handleCalendar(payload) {
     return { flow: "calendar", events: [], error: "from/to required YYYY-MM-DD" };
   }
 
-  const key = cacheKey(app, "calendar", [from, to, country]);
+  // 同一日期范围+国家共用一份，不按 app 复制
+  const key = sourceCacheKey("calendar", [from, to, country]);
   const hit = await cacheGet(key);
   if (hit) return hit;
 
@@ -269,6 +269,6 @@ export async function handleCalendar(payload) {
     witching: witchingDates(Number(year)),
     source: "FinanceCalendar / PipAtlas / ForexFactory / computed",
   };
-  await cacheSet(key, data, 180);
+  await cacheSet(key, data, { freshSec: 120, softSec: 1800 });
   return data;
 }
