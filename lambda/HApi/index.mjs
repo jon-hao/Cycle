@@ -6,27 +6,27 @@
  *   POST {"flow":"news", ...}
  *   路径 /news  （Function URL 会把 path 带进来）
  *
+ * CORS 只由 Function URL 配置注入，响应里不再写 ACAO，避免重复头。
  * `new` 视为 `news` 的别名。后续在 flows/ 下加模块，并注册到 FLOWS 即可。
  */
 
 import { handleNews } from "./flows/news.mjs";
-
-const CORS = {
-  "access-control-allow-origin": "*",
-  "access-control-allow-methods": "GET,POST,OPTIONS",
-  "access-control-allow-headers": "content-type",
-  "cache-control": "public, max-age=60",
-};
+import { withQuota, quotaStatus } from "./quota.mjs";
 
 const FLOWS = {
   news: handleNews,
   new: handleNews,
+  quota: async () => quotaStatus(),
 };
 
-function json(statusCode, obj) {
+function json(statusCode, obj, extraHeaders) {
   return {
     statusCode,
-    headers: { ...CORS, "content-type": "application/json; charset=utf-8" },
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": statusCode === 200 ? "public, max-age=60" : "no-store",
+      ...(extraHeaders || {}),
+    },
     body: JSON.stringify(obj),
   };
 }
@@ -75,7 +75,7 @@ export async function handler(event) {
   const method =
     event?.requestContext?.http?.method || event?.httpMethod || "GET";
   if (method === "OPTIONS") {
-    return { statusCode: 204, headers: CORS, body: "" };
+    return { statusCode: 204, headers: { "cache-control": "no-store" }, body: "" };
   }
   if (method !== "GET" && method !== "POST") {
     return json(405, { error: "method not allowed" });
@@ -93,12 +93,22 @@ export async function handler(event) {
   }
 
   try {
-    const data = await run(payload);
-    return json(200, data);
+    const gated = await withQuota(() => run(payload));
+    if (!gated.ok) {
+      return json(429, {
+        error: "monthly quota exceeded",
+        flow,
+        reset: gated.reset,
+        usage: gated.usage,
+        limits: gated.limits,
+      });
+    }
+    return json(200, gated.result);
   } catch (err) {
-    return json(502, {
-      flow,
-      error: String(err && err.message ? err.message : err),
-    });
+    const msg = String(err && err.message ? err.message : err);
+    if (/SSM|Parameter|credentials|AccessDenied/i.test(msg)) {
+      return json(503, { flow, error: "quota store unavailable", detail: msg });
+    }
+    return json(502, { flow, error: msg });
   }
 }

@@ -59,6 +59,9 @@ python3 -m http.server 5174
 |------|------|
 | `GET ?flow=news` / `POST {"flow":"news"}` | 金十重要事件 |
 | `flow=new` | `news` 的别名 |
+| `GET ?flow=quota` | 查看本月用量 / 软上限 / 下次重置日（UTC） |
+
+**防费用软上限（UTC 自然月）：** 默认最多约 **90 万次**请求、**36 万 GB-秒**（低于账号 Always Free 的 100 万 / 40 万，给 429 与其它 Lambda 留余量）。计数存在免费的 SSM Standard Parameter `/HApi/quota`；超额返回 `429`，跨月自动清零。可用环境变量 `HAPI_MAX_REQUESTS` / `HAPI_MAX_GB_SECONDS` 调整。
 
 后续新能力：在 `lambda/HApi/flows/` 加模块，并在 `index.mjs` 的 `FLOWS` 注册即可。
 

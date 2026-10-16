@@ -1,0 +1,8 @@
+{
+  "name": "hapi",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@aws-sdk/client-ssm": "^3.901.0"
+  }
+}
