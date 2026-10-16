@@ -923,13 +923,31 @@ button,
   color: #ca8a04;
 }
 
-.news-modal-actions {
-  margin: 12px 0 4px;
+.news-modal-meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 2px 0 10px;
 }
 
-.news-origin-btn {
-  display: inline-flex;
+.news-origin-link {
+  color: var(--brand);
+  font-size: 0.88rem;
+  font-weight: 500;
   text-decoration: none;
+  white-space: nowrap;
+  margin-left: auto;
+}
+
+.news-origin-link:hover {
+  text-decoration: underline;
+}
+
+.news-detail-body {
+  line-height: 1.9;
+  padding: 10px 0 18px;
+  white-space: pre-wrap;
 }
 
 .sheet-head .news-rank {

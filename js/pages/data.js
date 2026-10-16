@@ -322,12 +322,16 @@ window.CyclePages.data = (function () {
   }
 
   function metricCard(id, titleHtml, valueText, subHtml) {
-    const missing = valueText === window.t("missing");
-    return `<div class="metric-card ${missing ? "is-missing" : ""}" data-metric="${id}" role="button" tabindex="0">
-      <div class="metric-top"><span class="card-title">${titleHtml}</span><span class="metric-open card-date">${missing ? "" : window.t("openChart")}</span></div>
+    if (valueText === window.t("missing")) return "";
+    return `<div class="metric-card" data-metric="${id}" role="button" tabindex="0">
+      <div class="metric-top"><span class="card-title">${titleHtml}</span><span class="metric-open card-date">${window.t("openChart")}</span></div>
       <div class="metric-value card-value">${valueText}</div>
       ${subHtml ? `<div class="metric-sub">${subHtml}</div>` : ""}
     </div>`;
+  }
+
+  function focusPayload(base, focus) {
+    return Object.assign({}, base, { focus: focus || null });
   }
 
   function skeleton() {
@@ -371,10 +375,16 @@ window.CyclePages.data = (function () {
       macro = cache.macro;
       fg = cache.fg;
     } else {
-      [macro, fg] = await Promise.all([
-        window.CycleAPI.fetchMacro(code),
-        window.CycleAPI.fetchFearGreed(code),
-      ]);
+      const board = window.CycleBoard && window.CycleBoard.rawFor(code);
+      if (soft && board && board.macro) {
+        macro = board.macro;
+        fg = board.fg;
+      } else {
+        [macro, fg] = await Promise.all([
+          window.CycleAPI.fetchMacro(code),
+          window.CycleAPI.fetchFearGreed(code),
+        ]);
+      }
       cache = { code, macro, fg };
     }
 
@@ -400,15 +410,15 @@ window.CyclePages.data = (function () {
           </button>
         </section>
 
-        <section class="metric-card fg-card ${fg ? "" : "is-missing"}" data-metric="fear" role="button" tabindex="0">
+        ${
+          fg
+            ? `<section class="metric-card fg-card" data-metric="fear" role="button" tabindex="0">
           <div class="metric-top"><span class="card-title">${window.t("fearGreed")}</span>
-            <span class="metric-open card-date">${fg ? window.t("openChart") : ""}</span></div>
-          ${
-            fg
-              ? `<div class="fg-gauge-wrap"><svg id="fgGauge" class="fg-gauge"></svg></div>`
-              : `<div class="metric-value card-value">${window.t("missing")}</div>`
-          }
-        </section>
+            <span class="metric-open card-date">${window.t("openChart")}</span></div>
+          <div class="fg-gauge-wrap"><svg id="fgGauge" class="fg-gauge"></svg></div>
+        </section>`
+            : ""
+        }
       </div>
 
       <section class="metrics metrics-grid">
@@ -709,15 +719,44 @@ window.CyclePages.data = (function () {
 
     function openMetric(id) {
       if (id === "fear") {
-        openFearModal(fg, fgVal, trend, aiPayload);
+        openFearModal(
+          fg,
+          fgVal,
+          trend,
+          focusPayload(aiPayload, {
+            metric: "fearGreed",
+            title: window.t("fearGreed"),
+            value: fgVal,
+            delta: trend,
+          })
+        );
         return;
       }
       const conf = seriesMap[id];
       if (!conf) return;
-      openSeriesModal(conf.title, conf.series, conf.extra, aiPayload, conf.opts);
+      const series = conf.series || [];
+      const last = series.length ? series[series.length - 1] : null;
+      const prev = series.length > 1 ? series[series.length - 2] : null;
+      const lastV = last && last.v != null ? last.v : null;
+      const delta =
+        lastV != null && prev && prev.v != null
+          ? Number(lastV) - Number(prev.v)
+          : null;
+      openSeriesModal(
+        conf.title,
+        conf.series,
+        conf.extra,
+        focusPayload(aiPayload, {
+          metric: id,
+          title: conf.title,
+          value: lastV,
+          delta: delta == null ? null : Number(delta.toFixed(3)),
+        }),
+        conf.opts
+      );
     }
 
-    root.querySelectorAll(".metric-card:not(.is-missing)").forEach((card) => {
+    root.querySelectorAll(".metric-card").forEach((card) => {
       card.addEventListener("click", (e) => {
         if (e.target.closest("#subMeet") || e.target.closest(".sub-inline")) return;
         openMetric(card.dataset.metric);

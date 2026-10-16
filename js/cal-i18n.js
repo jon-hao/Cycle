@@ -333,5 +333,27 @@ window.CycleCalI18n = (function () {
     return title;
   }
 
-  return { translateTitle, dedupeKey };
+  /** 规则未命中时走 MyMemory，再由大模型兜底 */
+  async function translateTitleAsync(raw, lang, meta) {
+    const title = String(raw || "").trim();
+    if (!title) return title;
+    const L = lang === "zh-TW" ? "zh-TW" : lang === "en" ? "en" : "zh";
+    const sync = translateTitle(title, lang, meta);
+    if (sync !== title) return sync;
+
+    const hasCJK = /[\u4e00-\u9fff]/.test(title);
+    if (L === "en" && !hasCJK) return title;
+    if (L === "zh" && hasCJK) return title;
+    if (L === "zh-TW" && hasCJK) {
+      return window.CycleTranslate
+        ? window.CycleTranslate.toTraditional(title)
+        : title;
+    }
+    if (window.CycleTranslate && window.CycleTranslate.translateText) {
+      return await window.CycleTranslate.translateText(title, L);
+    }
+    return title;
+  }
+
+  return { translateTitle, translateTitleAsync, dedupeKey };
 })();

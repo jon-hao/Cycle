@@ -3,12 +3,19 @@
  * https://topic17z2k407.jin10.com/topic/jin10_important_news.html
  *
  * countryGuess：规则打分（US/CN/GLOBAL）+ confidence，前端可再让浏览器模型纠偏。
+ * 抗 502：内存短缓存 + DynamoDB 缓存 + 上游重试 + 过期缓存兜底。
  */
+
+import { cacheGet, cacheGetSoft, cacheSet, cacheKey } from "../lib/cache.mjs";
 
 const UPSTREAM =
   "https://1b8d6028d99849668a6d8755c79e650f.z3c.jin10.com/top/flashsByTime?time_type=time&sort=priority";
 
-let cache = { at: 0, payload: null };
+let mem = { at: 0, payload: null };
+
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
 
 /** 规则国家判断（与前端 CycleAPI.guessNewsCountry 保持同思路） */
 export function guessNewsCountry(text) {
@@ -130,26 +137,79 @@ export function mapFlashes(rows) {
   return out;
 }
 
-async function loadItems() {
-  const now = Date.now();
-  if (cache.payload && now - cache.at < 60_000) return cache.payload;
-  const res = await fetch(UPSTREAM, {
-    headers: {
-      "x-app-id": "EzF2s2HxxU0U5bYa",
-      "x-version": "1.0.0",
-      "content-type": "application/json",
-      referer: "https://topic17z2k407.jin10.com/",
-    },
-  });
-  if (!res.ok) throw new Error("upstream " + res.status);
-  const data = await res.json();
-  if (!data || data.status !== 200) throw new Error("upstream status");
-  const payload = { flow: "news", items: mapFlashes(data.data) };
-  cache = { at: now, payload };
-  return payload;
+async function fetchUpstreamOnce() {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 8000);
+  try {
+    const res = await fetch(UPSTREAM, {
+      signal: ctrl.signal,
+      headers: {
+        "x-app-id": "EzF2s2HxxU0U5bYa",
+        "x-version": "1.0.0",
+        "content-type": "application/json",
+        referer: "https://topic17z2k407.jin10.com/",
+      },
+    });
+    if (!res.ok) throw new Error("upstream " + res.status);
+    const data = await res.json();
+    if (!data || data.status !== 200) throw new Error("upstream status");
+    return { flow: "news", items: mapFlashes(data.data) };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
-/** @param {Record<string, unknown>} [_payload] */
-export async function handleNews(_payload) {
-  return loadItems();
+async function fetchUpstream() {
+  let lastErr;
+  for (let i = 0; i < 2; i++) {
+    try {
+      return await fetchUpstreamOnce();
+    } catch (e) {
+      lastErr = e;
+      await sleep(200 * (i + 1));
+    }
+  }
+  throw lastErr || new Error("upstream failed");
+}
+
+/** @param {Record<string, unknown>} [payload] */
+export async function handleNews(payload) {
+  const app = String((payload && payload.app) || "public").toLowerCase();
+  const key = cacheKey(app, "news", ["jin10"]);
+  const now = Date.now();
+
+  if (mem.payload && now - mem.at < 45_000) {
+    return mem.payload;
+  }
+
+  const fresh = await cacheGet(key);
+  if (fresh && Array.isArray(fresh.items) && fresh.items.length) {
+    mem = { at: now, payload: fresh };
+    return fresh;
+  }
+
+  try {
+    const body = await fetchUpstream();
+    mem = { at: now, payload: body };
+    await cacheSet(key, body, 180);
+    return body;
+  } catch (e) {
+    const soft = await cacheGetSoft(key);
+    if (soft && soft.payload && Array.isArray(soft.payload.items) && soft.payload.items.length) {
+      const stale = Object.assign({}, soft.payload, { stale: true });
+      mem = { at: now, payload: stale };
+      return stale;
+    }
+    if (mem.payload && Array.isArray(mem.payload.items) && mem.payload.items.length) {
+      return Object.assign({}, mem.payload, { stale: true });
+    }
+    // 无缓存时也不抛 502，避免前端整页失败
+    const msg = String(e && e.message ? e.message : e);
+    return {
+      flow: "news",
+      items: [],
+      degraded: true,
+      error: msg,
+    };
+  }
 }

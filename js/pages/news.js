@@ -58,7 +58,13 @@ window.CyclePages.news = (function () {
     if (soft && cache && cache.country === country && cache.lang === lang) {
       list = cache.list;
     } else {
-      const raw = await window.CycleAPI.fetchImportantNews(country);
+      let raw = null;
+      const board = window.CycleBoard && window.CycleBoard.rawFor(country);
+      if (soft && board && board.news && board.news.length) {
+        raw = board.news;
+      } else {
+        raw = await window.CycleAPI.fetchImportantNews(country);
+      }
       if (!raw || !raw.length) {
         list = [];
       } else {
@@ -66,12 +72,22 @@ window.CyclePages.news = (function () {
         if (box) {
           box.innerHTML = `<div class="empty">${window.t("translating")}</div>`;
         }
-        list = await mapPool(raw.slice(0, 40), 4, async (item) => {
+        // 国家列表内重新编号 1..n
+        const numbered = raw.slice(0, 40).map((item, idx) =>
+          Object.assign({}, item, {
+            displayRank: idx + 1,
+            jin10Rank: item.rank,
+          })
+        );
+        list = await mapPool(numbered, 4, async (item) => {
           if (!window.CycleTranslate) return item;
-          const title = await window.CycleTranslate.translateText(item.title, lang);
+          const title = await window.CycleTranslate.translateText(
+            item.title,
+            lang
+          );
           return Object.assign({}, item, {
             title,
-            titleRaw: item.title,
+            titleRaw: item.titleRaw || item.title,
             summaryRaw: item.summary || item.content || "",
             contentRaw: item.content || item.summary || "",
           });
@@ -87,15 +103,16 @@ window.CyclePages.news = (function () {
     }
 
     box.innerHTML = list
-      .map(
-        (n) => `<article class="news-card" data-id="${encodeURIComponent(n.id)}">
+      .map((n) => {
+        const r = n.displayRank || n.rank || "·";
+        return `<article class="news-card" data-id="${encodeURIComponent(n.id)}">
           <div class="news-meta">
-            <span class="${rankClass(n.rank)}" aria-label="#${n.rank || ""}">${n.rank || "·"}</span>
+            <span class="${rankClass(r)}" aria-label="#${r}">${r}</span>
             <time class="card-date">${formatTime(n.time)}</time>
           </div>
           <h3 class="card-title">${escapeHtml(n.title)}</h3>
-        </article>`
-      )
+        </article>`;
+      })
       .join("");
 
     const byId = Object.fromEntries(list.map((n) => [n.id, n]));
@@ -104,15 +121,18 @@ window.CyclePages.news = (function () {
         const id = decodeURIComponent(card.dataset.id);
         const n = byId[id];
         if (!n) return;
+        const r = n.displayRank || n.rank || "";
 
         window.CycleUI.openModal(`
           <div class="sheet-head">
-            <h2 class="card-title"><span class="${rankClass(n.rank)}">${n.rank || ""}</span> ${escapeHtml(n.title)}</h2>
+            <h2 class="card-title"><span class="${rankClass(r)}">${r}</span> ${escapeHtml(n.title)}</h2>
             <button type="button" class="icon-btn" data-close>×</button>
           </div>
-          <p class="card-date">${formatTime(n.time)}</p>
-          <p class="card-content" id="newsSummary">${window.t("translating")}</p>
-          <div class="news-modal-actions" id="newsExtra"></div>
+          <div class="news-modal-meta">
+            <time class="card-date">${formatTime(n.time)}</time>
+            <span id="newsExtra"></span>
+          </div>
+          <p class="card-content news-detail-body" id="newsSummary">${window.t("translating")}</p>
           <div class="ai-host" id="aiNewsHost"></div>
         `);
 
@@ -128,9 +148,11 @@ window.CyclePages.news = (function () {
         const extra = document.getElementById("newsExtra");
         if (extra) {
           if (n.link) {
-            extra.innerHTML = `<a class="btn news-origin-btn" href="${escapeHtml(
+            extra.innerHTML = `<a class="news-origin-link" href="${escapeHtml(
               n.link
-            )}" target="_blank" rel="noopener noreferrer">${window.t("sourceLink")}</a>`;
+            )}" target="_blank" rel="noopener noreferrer">${window.t(
+              "sourceLink"
+            )}</a>`;
           } else {
             extra.innerHTML = "";
           }
@@ -139,6 +161,7 @@ window.CyclePages.news = (function () {
         window.CycleAIUI.mount(document.getElementById("aiNewsHost"), "news", {
           title: n.title,
           summary: body || "",
+          focus: n.title,
         });
       });
     });

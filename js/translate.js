@@ -85,6 +85,40 @@ window.CycleTranslate = (function () {
     }
   }
 
+  async function llmTranslate(text, target) {
+    if (!window.CycleLLM || !window.CycleLLM.chat || !window.CycleLLM.getStatus) {
+      return null;
+    }
+    const st = window.CycleLLM.getStatus();
+    if (!st || st.status !== "ready") return null;
+    const langName =
+      target === "en"
+        ? "English"
+        : target === "zh-TW"
+          ? "Traditional Chinese"
+          : "Simplified Chinese";
+    const system =
+      "You are a precise translator for macro/finance text. Translate into " +
+      langName +
+      ". Output ONLY the translation — no quotes, labels, or notes.";
+    try {
+      const live = await window.CycleLLM.chat(system, String(text || "").slice(0, 900));
+      if (live && live.ok && live.text) {
+        const t = String(live.text).trim().replace(/^["「『]|["」』]$/g, "");
+        return t || null;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  function needsMachine(src, target) {
+    if (target === "en") return src === "zh";
+    if (target === "zh" || target === "zh-Hans" || target === "zh-TW") {
+      return src === "en";
+    }
+    return false;
+  }
+
   async function translateText(text, targetLang) {
     const raw = String(text || "").trim();
     if (!raw) return raw;
@@ -111,6 +145,11 @@ window.CycleTranslate = (function () {
       else {
         out = (await myMemory(raw, "zh-CN|en")) || raw;
       }
+    }
+
+    if (needsMachine(src, target) && (out === raw || !out)) {
+      const llm = await llmTranslate(raw, target);
+      if (llm) out = target === "zh-TW" && src === "zh" ? toTraditional(llm) : llm;
     }
 
     cache.set(key, out);

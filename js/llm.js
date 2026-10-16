@@ -181,8 +181,8 @@ window.CycleLLM = (function () {
         : `You are a macro desk analyst. Infer which industries/sectors may be affected and why. Use Markdown with three sections: ### Implication / ### May benefit / ### May struggle. Bold key terms and use lists. Do not restate the headline. No trade calls. ${mdHint(lang)}`;
     }
     return isZh(lang)
-      ? `你是宏观市场分析员。根据给出的数据判断当前市场状态（偏紧/偏松、风险偏好、通胀压力等）。用 Markdown 分三段：### 市场状态判断 / ### 谁可能更舒服 / ### 谁可能更难受。可加粗关键词、用列表。不要把数字复述一遍当分析，不要喊买卖。${mdHint(lang)}`
-      : `You are a macro desk analyst. Infer the market regime (tight/loose, risk appetite, inflation pressure). Use Markdown with three sections: ### Regime / ### Who may benefit / ### Who may struggle. Bold key terms and use lists. Do not recite input numbers. No trade calls. ${mdHint(lang)}`;
+      ? `你是宏观市场分析员。若提供了「当前弹窗聚焦」指标，必须优先分析该指标的水平、趋势与含义，其它宏观数据仅作辅助背景。用 Markdown 分三段：### 市场状态判断 / ### 谁可能更舒服 / ### 谁可能更难受。可加粗关键词、用列表。不要把数字复述一遍当分析，不要喊买卖。${mdHint(lang)}`
+      : `You are a macro desk analyst. If a focused metric is provided for the open modal, prioritize that series (level, trend, implication); treat other macros as background only. Use Markdown with three sections: ### Regime / ### Who may benefit / ### Who may struggle. Bold key terms and use lists. Do not recite input numbers. No trade calls. ${mdHint(lang)}`;
   }
 
   function fallback(kind, payload, lang) {
@@ -260,9 +260,14 @@ window.CycleLLM = (function () {
     const system = colloquialSystem(lang, kind);
     let user = "";
     if (kind === "macro") {
+      const focus = payload.focus
+        ? isZh(lang)
+          ? `当前弹窗聚焦：指标=${payload.focus.metric || ""}；标题=${payload.focus.title || ""}；现值=${payload.focus.value ?? "n/a"}；近期变化=${payload.focus.delta ?? "n/a"}。请优先解读该指标。`
+          : `Open modal focus: metric=${payload.focus.metric || ""}; title=${payload.focus.title || ""}; value=${payload.focus.value ?? "n/a"}; recent change=${payload.focus.delta ?? "n/a"}. Prioritize this metric.`
+        : "";
       user = isZh(lang)
-        ? `背景数据（勿复述，只用来判断状态）：国家=${payload.countryLabel}；康波=K${payload.waveId} ${payload.phase}；利率=${payload.rate}；通胀=${payload.inflation}；CPI=${payload.cpi}；PPI=${payload.ppi}；恐慌贪婪=${payload.fearGreed}。请判断市场状态。`
-        : `Background (do not recite): country=${payload.countryLabel}; wave=K${payload.waveId} ${payload.phase}; rate=${payload.rate}; inflation=${payload.inflation}; CPI=${payload.cpi}; PPI=${payload.ppi}; Fear&Greed=${payload.fearGreed}. Infer the market regime.`;
+        ? `${focus}\n背景数据（勿复述，只用来辅助判断）：国家=${payload.countryLabel}；康波=K${payload.waveId} ${payload.phase}；利率=${payload.rate}；通胀=${payload.inflation}；CPI=${payload.cpi}；PPI=${payload.ppi}；恐慌贪婪=${payload.fearGreed}。请判断市场状态。`
+        : `${focus}\nBackground (do not recite): country=${payload.countryLabel}; wave=K${payload.waveId} ${payload.phase}; rate=${payload.rate}; inflation=${payload.inflation}; CPI=${payload.cpi}; PPI=${payload.ppi}; Fear&Greed=${payload.fearGreed}. Infer the market regime.`;
     } else if (kind === "news") {
       user = isZh(lang)
         ? `新闻：${payload.title}\n摘要：${payload.summary}\n请分析可能影响哪些行业/板块。`

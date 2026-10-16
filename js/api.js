@@ -629,9 +629,18 @@ window.CycleAPI = (function () {
   }
 
   async function fetchNewsProxy() {
-    const d = await hapi("news", {}, { timeout: 20000 });
-    if (!d || !Array.isArray(d.items) || !d.items.length) return null;
-    return d.items;
+    let lastErr = null;
+    for (let i = 0; i < 3; i++) {
+      try {
+        const d = await hapi("news", {}, { timeout: 28000 });
+        if (d && Array.isArray(d.items) && d.items.length) return d.items;
+      } catch (e) {
+        lastErr = e;
+      }
+      await new Promise((r) => setTimeout(r, 350 * (i + 1)));
+    }
+    if (lastErr) console.warn("[Cycle] news proxy", lastErr);
+    return null;
   }
 
   async function searchWeb(query) {

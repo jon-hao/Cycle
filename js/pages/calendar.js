@@ -27,11 +27,28 @@ window.CyclePages.calendar = (function () {
     return window.CycleTZ ? window.CycleTZ.locale() : "zh-CN";
   }
   function trTitle(title, meta) {
+    if (meta && meta.displayTitle) return meta.displayTitle;
     return window.CycleCalI18n.translateTitle(
       title,
       window.CycleState.lang,
       meta || null
     );
+  }
+
+  async function localizeEvents(events) {
+    if (!events || !events.length) return events || [];
+    const lang = window.CycleState.lang;
+    const fn =
+      window.CycleCalI18n && window.CycleCalI18n.translateTitleAsync
+        ? window.CycleCalI18n.translateTitleAsync.bind(window.CycleCalI18n)
+        : null;
+    if (!fn) return events;
+    await Promise.all(
+      events.map(async (e) => {
+        e.displayTitle = await fn(e.title, lang, e);
+      })
+    );
+    return events;
   }
   function mondayOf(d) {
     const day = d.getDay();
@@ -327,6 +344,7 @@ window.CyclePages.calendar = (function () {
           });
         }
         events.sort((a, b) => new Date(a.datetime) - new Date(b.datetime));
+        await localizeEvents(events);
         cache = { key: cacheKey, events };
       }
 

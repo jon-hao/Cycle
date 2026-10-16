@@ -11,6 +11,18 @@ export async function cacheGet(pk) {
   }
 }
 
+/** 允许返回已过期缓存（上游失败时兜底） */
+export async function cacheGetSoft(pk) {
+  try {
+    const item = await dbGet(pk, "cache");
+    if (!item || item.payload == null) return null;
+    const expired = !!(item.ttl && item.ttl < Math.floor(Date.now() / 1000));
+    return { payload: item.payload, expired };
+  } catch {
+    return null;
+  }
+}
+
 export async function cacheSet(pk, payload, ttlSec = 300) {
   try {
     const now = Math.floor(Date.now() / 1000);

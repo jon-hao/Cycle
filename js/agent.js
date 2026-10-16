@@ -52,6 +52,11 @@ window.CycleAgent = (function () {
       );
       parts.push(`theme=${k.theme}`);
     }
+    if (window.CycleBoard && window.CycleBoard.agentContext) {
+      parts.push(
+        "\n" + window.CycleBoard.agentContext(st.lang || "zh")
+      );
+    }
     return parts.join("; ");
   }
 
@@ -95,11 +100,17 @@ window.CycleAgent = (function () {
   }
 
   async function searchContext(q, lang) {
-    if (!window.CycleAPI || !window.CycleAPI.searchWeb || !needsWebSearch(q)) {
-      return "";
-    }
+    if (!window.CycleAPI || !window.CycleAPI.searchWeb) return "";
+    if (isAffirmShort(q)) return "";
+    // 总体分析：有实质问题就尝试联网；短问句也按关键词补检索
+    const query = needsWebSearch(q)
+      ? q
+      : String(q || "").trim().length >= 6
+        ? q
+        : "";
+    if (!query) return "";
     try {
-      const data = await window.CycleAPI.searchWeb(q);
+      const data = await window.CycleAPI.searchWeb(query);
       const rows = (data && data.results) || [];
       if (!rows.length) return "";
       const lines = rows.slice(0, 6).map((r, i) => {
@@ -143,7 +154,16 @@ window.CycleAgent = (function () {
         content: String(m.content || "").slice(0, 1200),
       }));
 
-    const ctxBits = [`看板上下文：${contextSnippet()}`];
+    const board =
+      window.CycleBoard && window.CycleBoard.agentContext
+        ? window.CycleBoard.agentContext(lang)
+        : contextSnippet();
+    const ctxBits = [
+      lang === "en"
+        ? "Full Cycle board cache (US+CN macro/news/calendar). Use it for overall analysis:"
+        : "Cycle 全量看板缓存（美/中宏观、新闻、日历）。请据此做总体分析：",
+      board.slice(0, 9000),
+    ];
     if (webCtx) ctxBits.push(webCtx);
     const ctx = ctxBits.join("\n\n");
     let userContent = q;
@@ -160,8 +180,8 @@ window.CycleAgent = (function () {
         role: "assistant",
         content:
           lang === "en"
-            ? "Understood. I will answer using that board context and any search notes."
-            : "收到，我会结合看板上下文与检索摘要直接作答。",
+            ? "Understood. I will answer using the full board cache and any search notes."
+            : "收到，我会结合全量看板缓存与检索摘要直接作答。",
       },
       ...history,
       { role: "user", content: userContent },

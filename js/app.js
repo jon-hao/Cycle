@@ -302,6 +302,9 @@ window.CycleSelect = (function () {
             els.ptr.textContent = window.t("refreshing");
           }
           try {
+            if (window.CycleBoard && window.CycleBoard.preload) {
+              await window.CycleBoard.preload().catch(() => null);
+            }
             await renderPage(false);
           } finally {
             refreshing = false;
@@ -438,7 +441,15 @@ window.CycleSelect = (function () {
     window.CycleState.page = ["data", "news", "calendar"].includes(h)
       ? h
       : "data";
-    await renderPage(false);
+
+    // 刷新时先拉全量看板进本地缓存，供 Agent 总体分析；失败不挡首屏
+    if (window.CycleBoard && window.CycleBoard.preload) {
+      try {
+        await window.CycleBoard.preload();
+      } catch (_) {}
+    }
+
+    await renderPage(false, { soft: true });
     requestAnimationFrame(() => moveIndicator(false));
   }
 
