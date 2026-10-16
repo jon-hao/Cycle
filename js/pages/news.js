@@ -63,7 +63,9 @@ window.CyclePages.news = (function () {
         list = [];
       } else {
         const box = root.querySelector("#newsList");
-        if (box) box.innerHTML = `<div class="empty">${window.t("translating")}</div>`;
+        if (box) {
+          box.innerHTML = `<div class="empty">${window.t("translating")}</div>`;
+        }
         list = await mapPool(raw.slice(0, 40), 4, async (item) => {
           if (!window.CycleTranslate) return item;
           const title = await window.CycleTranslate.translateText(item.title, lang);

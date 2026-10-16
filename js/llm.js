@@ -302,11 +302,57 @@ window.CycleLLM = (function () {
     });
   }
 
+  /**
+   * 把不确定国家的新闻标成 US / CN / GLOBAL。
+   * 仅在引擎已就绪时工作；返回 { [id]: "US"|"CN"|"GLOBAL" }。
+   */
+  async function classifyNewsCountries(items) {
+    const list = Array.isArray(items) ? items.slice(0, 24) : [];
+    if (!list.length) return {};
+    const st = readState();
+    if (st.status !== "ready" && !engine) return {};
+
+    const catalog = list
+      .map((n, i) => {
+        const title = String(n.title || "").slice(0, 80);
+        const summary = String(n.summary || "").slice(0, 100);
+        return `${i + 1}. id=${n.id}\n标题:${title}\n摘要:${summary}`;
+      })
+      .join("\n\n");
+
+    const system =
+      "你是宏观新闻分拣员。只判断新闻主线国家：US（美国）、CN（中国大陆）、GLOBAL（其它/国际）。" +
+      "只输出 JSON 数组，不要其它文字。格式：[{\"id\":\"...\",\"country\":\"US\"}]";
+    const user =
+      "请标注下列新闻的 country（US/CN/GLOBAL）：\n\n" + catalog;
+
+    const live = await chat(system, user);
+    if (!live.ok || !live.text) return {};
+    const raw = live.text.trim();
+    const m = raw.match(/\[[\s\S]*\]/);
+    if (!m) return {};
+    try {
+      const arr = JSON.parse(m[0]);
+      const out = {};
+      (Array.isArray(arr) ? arr : []).forEach((row) => {
+        if (!row || row.id == null) return;
+        const c = String(row.country || "").toUpperCase();
+        if (c === "US" || c === "CN" || c === "GLOBAL" || c === "OTHER") {
+          out[String(row.id)] = c === "OTHER" ? "GLOBAL" : c;
+        }
+      });
+      return out;
+    } catch (_) {
+      return {};
+    }
+  }
+
   return {
     settings,
     ping,
     interpret,
     chat,
+    classifyNewsCountries,
     warmup,
     ensureEngine,
     hasWebGPU,

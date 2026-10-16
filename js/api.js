@@ -400,16 +400,109 @@ window.CycleAPI = (function () {
     };
   }
 
+  /** 规则国家判断（与 HApi news.guessNewsCountry 对齐） */
+  function guessNewsCountry(text) {
+    const t = String(text || "");
+    let cn = 0;
+    let us = 0;
+    const add = (re, w, side) => {
+      if (re.test(t)) {
+        if (side === "cn") cn += w;
+        else us += w;
+      }
+    };
+    add(/人民银行|中国人民银行|\bPBOC\b/i, 4, "cn");
+    add(/国常会|国务院|商务部|工信部|发改委|证监会|上交所|深交所|沪深|A股/, 3, "cn");
+    add(/人民币|\bLPR\b|中国经济|中国股市|内地楼市|尊界/, 2, "cn");
+    add(/北京|上海|深圳|中国(?!台湾)/, 1, "cn");
+    add(/美联储|Federal Reserve|\bFOMC\b|非农|\bNFP\b|华尔街|纳斯达克|标普|道琼斯|美元指数/, 3, "us");
+    add(/特朗普|\bTrump\b|耶伦|\bYellen\b|沃什|鲍威尔|\bPowell\b|哈玛克/, 3, "us");
+    add(/\bFed\b|美国(?:总统|经济|股市|CPI|PPI|零售)|U\.?S\.?(?:\s|$)|United States/i, 2, "us");
+    add(/美元(?!指数)/, 1, "us");
+    if (/印尼|也门|伊朗|乌克兰|俄罗斯|欧央行|\bECB\b|日经|韩股|KOSPI|特斯拉|MSCI|全球财经早餐/i.test(t)) {
+      if (cn < 3) cn = Math.max(0, cn - 1);
+      if (us < 3) us = Math.max(0, us - 1);
+    }
+    if (cn === 0 && us === 0) {
+      return { country: "GLOBAL", confidence: 0, countrySource: "rules" };
+    }
+    if (cn > us) {
+      return {
+        country: "CN",
+        confidence: Math.min(1, 0.45 + (cn - us) * 0.15),
+        countrySource: "rules",
+      };
+    }
+    if (us > cn) {
+      return {
+        country: "US",
+        confidence: Math.min(1, 0.45 + (us - cn) * 0.15),
+        countrySource: "rules",
+      };
+    }
+    return { country: "GLOBAL", confidence: 0.25, countrySource: "rules" };
+  }
+
   function guessCountry(text) {
-    const t = text || "";
-    if (/中国|人民银行|LPR|人民币|北京|上海|沪深|央行/.test(t)) return "CN";
-    if (/美国|美联储|FOMC|非农|纳斯达克|标普|华尔街|美元/.test(t)) return "US";
+    return guessNewsCountry(text).country;
+  }
+
+  function needsCountryModel(item) {
+    const c = item && item.countryGuess;
+    const conf = Number(item && item.countryConfidence);
+    if (c !== "US" && c !== "CN") return true;
+    return !(conf >= 0.6);
+  }
+
+  async function refineNewsCountries(items) {
+    const list = Array.isArray(items) ? items.slice() : [];
+    list.forEach((n) => {
+      if (n.countryGuess && n.countryConfidence != null) return;
+      const geo = guessNewsCountry(
+        (n.title || "") + " " + (n.summary || n.content || "")
+      );
+      n.countryGuess = geo.country;
+      n.countryConfidence = geo.confidence;
+      n.countrySource = geo.countrySource;
+    });
+
+    const unsure = list.filter(needsCountryModel);
     if (
-      /U\.?S\.|Fed|Federal Reserve|Wall Street|NFP/i.test(t) &&
-      !/中国/.test(t)
-    )
-      return "US";
-    return "GLOBAL";
+      unsure.length &&
+      window.CycleLLM &&
+      typeof window.CycleLLM.classifyNewsCountries === "function"
+    ) {
+      const st =
+        window.CycleLLM.getStatus && window.CycleLLM.getStatus();
+      // 仅在模型已就绪时调用，避免新闻页强制下载
+      if (st && st.status === "ready") {
+        const mapped = await window.CycleLLM.classifyNewsCountries(
+          unsure.map((n) => ({
+            id: n.id,
+            title: n.titleRaw || n.title,
+            summary: n.summaryRaw || n.summary || n.content || "",
+          }))
+        );
+        if (mapped && typeof mapped === "object") {
+          list.forEach((n) => {
+            const c = mapped[n.id];
+            if (c === "US" || c === "CN" || c === "GLOBAL") {
+              n.countryGuess = c;
+              n.countryConfidence = 0.85;
+              n.countrySource = "model";
+            }
+          });
+        }
+      }
+    }
+    return list;
+  }
+
+  function filterNewsByCountry(items, country) {
+    if (country !== "US" && country !== "CN") return items.slice();
+    return items
+      .filter((n) => n.countryGuess === country)
+      .sort((a, b) => (a.rank || 0) - (b.rank || 0));
   }
 
   function stripHtml(s) {
@@ -526,11 +619,11 @@ window.CycleAPI = (function () {
     if (cycleApiBase()) {
       const proxied = await fetchNewsProxy();
       if (!proxied || !proxied.length) return null;
-      // 金十专题榜按 priority 名次展示，不按时间重排、不按国家裁掉前三
-      return proxied
+      const ranked = proxied
         .slice()
-        .sort((a, b) => (a.rank || 0) - (b.rank || 0))
-        .slice(0, 60);
+        .sort((a, b) => (a.rank || 0) - (b.rank || 0));
+      const tagged = await refineNewsCountries(ranked);
+      return filterNewsByCountry(tagged, country).slice(0, 60);
     }
     const feeds = newsFeedsFor(country || "GLOBAL");
     const batches = await Promise.all(feeds.map((f) => fetchRssViaJson(f)));
@@ -544,12 +637,8 @@ window.CycleAPI = (function () {
     });
     items.sort((a, b) => new Date(b.time) - new Date(a.time));
     if (!items.length) return null;
-    if (country && country !== "GLOBAL") {
-      const filtered = items.filter(
-        (n) => n.countryGuess === country || n.countryGuess === "GLOBAL"
-      );
-      items = filtered.length >= 8 ? filtered : items;
-    }
+    items = await refineNewsCountries(items);
+    items = filterNewsByCountry(items, country);
     return items.slice(0, 60);
   }
 

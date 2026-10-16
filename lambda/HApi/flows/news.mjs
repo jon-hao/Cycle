@@ -1,6 +1,8 @@
 /**
  * 金十「重要事件」专题（sort=priority 的数组顺序即榜单排名）。
  * https://topic17z2k407.jin10.com/topic/jin10_important_news.html
+ *
+ * countryGuess：规则打分（US/CN/GLOBAL）+ confidence，前端可再让浏览器模型纠偏。
  */
 
 const UPSTREAM =
@@ -8,12 +10,52 @@ const UPSTREAM =
 
 let cache = { at: 0, payload: null };
 
-function guessCountry(text) {
-  const t = text || "";
-  if (/中国|人民银行|LPR|人民币|北京|上海|沪深|央行|国务院|国常会/.test(t)) return "CN";
-  if (/美国|美联储|FOMC|非农|纳斯达克|标普|华尔街|美元/.test(t)) return "US";
-  if (/U\.?S\.|Fed|Federal Reserve|Wall Street|NFP/i.test(t) && !/中国/.test(t)) return "US";
-  return "GLOBAL";
+/** 规则国家判断（与前端 CycleAPI.guessNewsCountry 保持同思路） */
+export function guessNewsCountry(text) {
+  const t = String(text || "");
+  let cn = 0;
+  let us = 0;
+  const add = (re, w, side) => {
+    if (re.test(t)) {
+      if (side === "cn") cn += w;
+      else us += w;
+    }
+  };
+
+  add(/人民银行|中国人民银行|\bPBOC\b/i, 4, "cn");
+  add(/国常会|国务院|商务部|工信部|发改委|证监会|上交所|深交所|沪深|A股/, 3, "cn");
+  add(/人民币|\bLPR\b|中国经济|中国股市|内地楼市|尊界/, 2, "cn");
+  add(/北京|上海|深圳|中国(?!台湾)/, 1, "cn");
+
+  add(/美联储|Federal Reserve|\bFOMC\b|非农|\bNFP\b|华尔街|纳斯达克|标普|道琼斯|美元指数/, 3, "us");
+  add(/特朗普|\bTrump\b|耶伦|\bYellen\b|沃什|鲍威尔|\bPowell\b|哈玛克/, 3, "us");
+  add(/\bFed\b|美国(?:总统|经济|股市|CPI|PPI|零售)|U\.?S\.?(?:\s|$)|United States/i, 2, "us");
+  add(/美元(?!指数)/, 1, "us");
+
+  // 明显国际/非美中主线，压低误判
+  if (/印尼|也门|伊朗|乌克兰|俄罗斯|欧央行|\bECB\b|日经|韩股|KOSPI|特斯拉|MSCI|全球财经早餐/i.test(t)) {
+    if (cn < 3) cn = Math.max(0, cn - 1);
+    if (us < 3) us = Math.max(0, us - 1);
+  }
+
+  if (cn === 0 && us === 0) {
+    return { country: "GLOBAL", confidence: 0, countrySource: "rules" };
+  }
+  if (cn > us) {
+    return {
+      country: "CN",
+      confidence: Math.min(1, 0.45 + (cn - us) * 0.15),
+      countrySource: "rules",
+    };
+  }
+  if (us > cn) {
+    return {
+      country: "US",
+      confidence: Math.min(1, 0.45 + (us - cn) * 0.15),
+      countrySource: "rules",
+    };
+  }
+  return { country: "GLOBAL", confidence: 0.25, countrySource: "rules" };
 }
 
 function cleanText(s) {
@@ -70,6 +112,7 @@ export function mapFlashes(rows) {
       (body.source_link && /^https?:/i.test(body.source_link) && body.source_link) ||
       "https://flash.jin10.com/detail/" + id;
     const text = title + " " + content;
+    const geo = guessNewsCountry(text);
     out.push({
       id,
       rank,
@@ -79,7 +122,9 @@ export function mapFlashes(rows) {
       time: toISO(flash.time),
       link,
       important: true,
-      countryGuess: guessCountry(text),
+      countryGuess: geo.country,
+      countryConfidence: geo.confidence,
+      countrySource: geo.countrySource,
     });
   }
   return out;
