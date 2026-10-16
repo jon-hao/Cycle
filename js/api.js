@@ -496,18 +496,22 @@ window.CycleAPI = (function () {
     });
   }
 
+  function cycleApiBase() {
+    const cfg = window.CycleConfig || {};
+    return String(cfg.apiBase || cfg.newsProxy || "").replace(/\/$/, "");
+  }
+
   async function fetchNewsProxy() {
-    const base = window.CycleConfig && window.CycleConfig.newsProxy;
+    const base = cycleApiBase();
     if (!base) return null;
-    const d = await getJSON(String(base).replace(/\/$/, ""));
+    const d = await getJSON(base + "?flow=news");
     if (!d || !Array.isArray(d.items) || !d.items.length) return null;
     return d.items;
   }
 
   async function fetchImportantNews(country) {
     // 已配置 Function URL 时只用金十「重要事件」专题；否则回退 RSS
-    const proxyUrl = window.CycleConfig && window.CycleConfig.newsProxy;
-    if (proxyUrl) {
+    if (cycleApiBase()) {
       const proxied = await fetchNewsProxy();
       if (!proxied || !proxied.length) return null;
       let items = proxied.slice();

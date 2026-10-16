@@ -1,11 +1,12 @@
 #!/bin/bash
-# 在已登录的 AWS CLI 上创建/更新 cycle-news，并写回 js/config.js。
+# 创建/更新 Lambda「Cycle」（按 flow 分流），并写回 js/config.js 的 apiBase。
 # 不要把账号密码交给任何人。用 IAM 访问密钥或 aws login / SSO。
 set -euo pipefail
 
 REGION="${AWS_REGION:-ap-southeast-1}"
-FUNC="${CYCLE_FUNC:-cycle-news}"
-ROLE="${CYCLE_ROLE:-cycle-news-role}"
+FUNC="${CYCLE_FUNC:-Cycle}"
+ROLE="${CYCLE_ROLE:-Cycle-role}"
+OLD_FUNC="${CYCLE_OLD_FUNC:-cycle-news}"
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 DIR="$(cd "$(dirname "$0")" && pwd)"
 
@@ -30,9 +31,9 @@ if ! aws iam get-role --role-name "$ROLE" >/dev/null 2>&1; then
   sleep 10
 fi
 
-ZIP="$(mktemp -t cycle-news).zip"
+ZIP="$(mktemp -t Cycle).zip"
 rm -f "$ZIP"
-(cd "$DIR" && zip -q "$ZIP" index.mjs)
+(cd "$DIR" && zip -q -r "$ZIP" index.mjs flows)
 
 if aws lambda get-function --function-name "$FUNC" --region "$REGION" >/dev/null 2>&1; then
   aws lambda update-function-code \
@@ -59,7 +60,7 @@ if ! aws lambda get-function-url-config --function-name "$FUNC" --region "$REGIO
     --auth-type NONE \
     --cors '{
       "AllowOrigins":["*"],
-      "AllowMethods":["GET"],
+      "AllowMethods":["GET","POST"],
       "AllowHeaders":["content-type"],
       "MaxAge":60
     }' \
@@ -71,9 +72,19 @@ if ! aws lambda get-function-url-config --function-name "$FUNC" --region "$REGIO
     --principal "*" \
     --function-url-auth-type NONE \
     --region "$REGION" >/dev/null || true
+else
+  aws lambda update-function-url-config \
+    --function-name "$FUNC" \
+    --auth-type NONE \
+    --cors '{
+      "AllowOrigins":["*"],
+      "AllowMethods":["GET","POST"],
+      "AllowHeaders":["content-type"],
+      "MaxAge":60
+    }' \
+    --region "$REGION" >/dev/null || true
 fi
 
-# Function URL AuthType=NONE 还需要对 * 开放 InvokeFunction，否则浏览器会 403
 aws lambda add-permission \
   --function-name "$FUNC" \
   --statement-id FunctionURLAllowInvokeFunction \
@@ -81,15 +92,21 @@ aws lambda add-permission \
   --principal "*" \
   --region "$REGION" >/dev/null 2>&1 || true
 
+# 下线旧的单用途函数（若仍存在）
+if [ -n "$OLD_FUNC" ] && aws lambda get-function --function-name "$OLD_FUNC" --region "$REGION" >/dev/null 2>&1; then
+  aws lambda delete-function-url-config --function-name "$OLD_FUNC" --region "$REGION" >/dev/null 2>&1 || true
+  aws lambda delete-function --function-name "$OLD_FUNC" --region "$REGION" >/dev/null
+  echo "deleted old function: $OLD_FUNC"
+fi
+
 URL="$(aws lambda get-function-url-config --function-name "$FUNC" --region "$REGION" --query FunctionUrl --output text)"
 python3 - "$ROOT/js/config.js" "$URL" <<'PY'
 import pathlib, sys
 path, url = sys.argv[1], sys.argv[2].rstrip("/")
-file = pathlib.Path(path)
-file.write_text(
+pathlib.Path(path).write_text(
     "window.CycleConfig = {\n"
-    "  // 金十重要事件，经 Lambda Function URL。空字符串则回退 RSS。\n"
-    f'  newsProxy: "{url}",\n'
+    "  // Cycle Lambda Function URL。按 ?flow= 分流，如 news。\n"
+    f'  apiBase: "{url}",\n'
     "};\n",
     encoding="utf-8",
 )

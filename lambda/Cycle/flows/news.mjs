@@ -1,27 +1,12 @@
 /**
- * Cycle 新闻代理。浏览器打到 Function URL，由 Lambda 去拉金十「重要事件」专题接口。
- * 专题页：https://topic17z2k407.jin10.com/topic/jin10_important_news.html
+ * 金十「重要事件」专题。
+ * https://topic17z2k407.jin10.com/topic/jin10_important_news.html
  */
 
 const UPSTREAM =
   "https://1b8d6028d99849668a6d8755c79e650f.z3c.jin10.com/top/flashsByTime?time_type=time&sort=priority";
 
-const CORS = {
-  "access-control-allow-origin": "*",
-  "access-control-allow-methods": "GET,OPTIONS",
-  "access-control-allow-headers": "content-type",
-  "cache-control": "public, max-age=60",
-};
-
-let cache = { at: 0, body: "" };
-
-function json(statusCode, obj) {
-  return {
-    statusCode,
-    headers: { ...CORS, "content-type": "application/json; charset=utf-8" },
-    body: JSON.stringify(obj),
-  };
-}
+let cache = { at: 0, payload: null };
 
 function guessCountry(text) {
   const t = text || "";
@@ -32,7 +17,10 @@ function guessCountry(text) {
 }
 
 function splitFlash(content) {
-  const raw = String(content || "").replace(/<br\b[^>]*>/gi, "").replace(/点击查看\.\.\./g, "").trim();
+  const raw = String(content || "")
+    .replace(/<br\b[^>]*>/gi, "")
+    .replace(/点击查看\.\.\./g, "")
+    .trim();
   const m = raw.match(/^【([^】]+)】/);
   if (!m) return { title: raw, summary: "" };
   return {
@@ -79,7 +67,7 @@ export function mapFlashes(rows) {
 
 async function loadItems() {
   const now = Date.now();
-  if (cache.body && now - cache.at < 60_000) return cache.body;
+  if (cache.payload && now - cache.at < 60_000) return cache.payload;
   const res = await fetch(UPSTREAM, {
     headers: {
       "x-app-id": "EzF2s2HxxU0U5bYa",
@@ -91,23 +79,12 @@ async function loadItems() {
   if (!res.ok) throw new Error("upstream " + res.status);
   const data = await res.json();
   if (!data || data.status !== 200) throw new Error("upstream status");
-  const body = JSON.stringify({ items: mapFlashes(data.data) });
-  cache = { at: now, body };
-  return body;
+  const payload = { flow: "news", items: mapFlashes(data.data) };
+  cache = { at: now, payload };
+  return payload;
 }
 
-export async function handler(event) {
-  const method = event?.requestContext?.http?.method || event?.httpMethod || "GET";
-  if (method === "OPTIONS") return { statusCode: 204, headers: CORS, body: "" };
-  if (method !== "GET") return json(405, { items: [] });
-  try {
-    const body = await loadItems();
-    return {
-      statusCode: 200,
-      headers: { ...CORS, "content-type": "application/json; charset=utf-8" },
-      body,
-    };
-  } catch (err) {
-    return json(502, { items: [], error: String(err && err.message ? err.message : err) });
-  }
+/** @param {Record<string, unknown>} [_payload] */
+export async function handleNews(_payload) {
+  return loadItems();
 }
