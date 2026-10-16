@@ -38,7 +38,7 @@
 | 下次 FOMC / 日历 / 美股假日 | [FinanceCalendar](https://www.financecalendar.com) + [PipAtlas](https://pipatlas.com) |
 | 恐慌贪婪（美） | [fearandgreedgraph.com](https://fearandgreedgraph.com)；中国暂无对等源 |
 | 全球年通胀兜底 | [World Bank](https://api.worldbank.org) `FP.CPI.TOTL.ZG`（JSONP） |
-| 重要新闻 | 金十 important RSS → [rss2json](https://api.rss2json.com) |
+| 重要新闻 | 金十[重要事件](https://topic17z2k407.jin10.com/topic/jin10_important_news.html)，经自建 Lambda Function URL（`js/config.js` 的 `newsProxy`）。未配置时回退金十 RSS + Google News |
 
 拿不到的序列统一显示「数据缺失 / Unavailable」。
 
@@ -50,3 +50,16 @@ python3 -m http.server 5174
 ```
 
 推送到 `main` 即由 GitHub Pages 发布。
+
+## 新闻代理（Lambda Function URL）
+
+浏览器不能直接打金十专题接口。`lambda/news` 在 AWS 上代拉，页面只请求 Function URL。
+
+不要把 AWS 登录密码交给任何人。本机安装 [AWS CLI](https://aws.amazon.com/cli/) 后，用 IAM 访问密钥或 `aws login` / SSO 登录，再执行：
+
+```bash
+chmod +x lambda/news/deploy.sh
+./lambda/news/deploy.sh
+```
+
+脚本会创建 `cycle-news`（默认区域 `ap-southeast-1`），并把 Function URL 写入 `js/config.js`。Function URL 本身不另收费，落在 Lambda 每月免费额度里。

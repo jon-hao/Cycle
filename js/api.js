@@ -496,8 +496,30 @@ window.CycleAPI = (function () {
     });
   }
 
+  async function fetchNewsProxy() {
+    const base = window.CycleConfig && window.CycleConfig.newsProxy;
+    if (!base) return null;
+    const d = await getJSON(String(base).replace(/\/$/, ""));
+    if (!d || !Array.isArray(d.items) || !d.items.length) return null;
+    return d.items;
+  }
+
   async function fetchImportantNews(country) {
-    // 金十 important + 多路 Google News（宏观/外汇相关）合并去重
+    // 已配置 Function URL 时只用金十「重要事件」专题；否则回退 RSS
+    const proxyUrl = window.CycleConfig && window.CycleConfig.newsProxy;
+    if (proxyUrl) {
+      const proxied = await fetchNewsProxy();
+      if (!proxied || !proxied.length) return null;
+      let items = proxied.slice();
+      items.sort((a, b) => new Date(b.time) - new Date(a.time));
+      if (country && country !== "GLOBAL") {
+        const filtered = items.filter(
+          (n) => n.countryGuess === country || n.countryGuess === "GLOBAL"
+        );
+        items = filtered.length >= 8 ? filtered : items;
+      }
+      return items.slice(0, 60);
+    }
     const feeds = newsFeedsFor(country || "GLOBAL");
     const batches = await Promise.all(feeds.map((f) => fetchRssViaJson(f)));
     const seen = new Set();
