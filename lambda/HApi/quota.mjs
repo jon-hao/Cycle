@@ -1,9 +1,8 @@
 /**
- * 月度软配额（UTC 自然月）。计数存在 SSM Standard Parameter（免费）。
- * 故意低于账号 Always Free（100 万次 / 40 万 GB-秒），给本函数 429 与其它用量留余量。
- * 说明：请求已打到 Function URL 时，这次 invoke 仍会计入 AWS 用量；超额后尽早 429，避免金十拉取等重活。
+ * 月度软配额（UTC 自然月）。优先 DynamoDB Always Free 表；失败时回退 SSM。
  */
 
+import { dbGet, dbPut } from "./lib/db.mjs";
 import {
   SSMClient,
   GetParameterCommand,
@@ -36,9 +35,21 @@ function empty(ym) {
 async function readState() {
   const ym = monthKey();
   try {
-    const out = await ssm.send(
-      new GetParameterCommand({ Name: PARAM })
-    );
+    const item = await dbGet("quota#global", "state");
+    if (item && item.ym === ym) {
+      return {
+        ym,
+        req: Math.max(0, Number(item.req) || 0),
+        gbSec: Math.max(0, Number(item.gbSec) || 0),
+      };
+    }
+    if (item && item.ym !== ym) return empty(ym);
+  } catch {
+    /* fall through to SSM */
+  }
+
+  try {
+    const out = await ssm.send(new GetParameterCommand({ Name: PARAM }));
     const raw = out.Parameter && out.Parameter.Value;
     if (!raw) return empty(ym);
     const data = JSON.parse(raw);
@@ -55,16 +66,28 @@ async function readState() {
 }
 
 async function writeState(state) {
+  const body = {
+    ym: state.ym,
+    req: Math.floor(state.req),
+    gbSec: Math.round(state.gbSec * 1000) / 1000,
+  };
+  try {
+    await dbPut({
+      pk: "quota#global",
+      sk: "state",
+      ...body,
+      updatedAt: new Date().toISOString(),
+    });
+    return;
+  } catch {
+    /* SSM fallback */
+  }
   await ssm.send(
     new PutParameterCommand({
       Name: PARAM,
       Type: "String",
       Overwrite: true,
-      Value: JSON.stringify({
-        ym: state.ym,
-        req: Math.floor(state.req),
-        gbSec: Math.round(state.gbSec * 1000) / 1000,
-      }),
+      Value: JSON.stringify(body),
     })
   );
 }
@@ -82,7 +105,7 @@ export function quotaLimits() {
     maxRequests: MAX_REQ,
     maxGbSeconds: MAX_GB,
     memoryMb: MEMORY_MB,
-    param: PARAM,
+    store: "dynamodb+ssm",
   };
 }
 
@@ -103,10 +126,6 @@ export async function quotaStatus() {
   };
 }
 
-/**
- * 包一层业务逻辑：超额则 ok:false；无论成败都记账（含 429 自身的轻量耗时）。
- * @param {() => Promise<unknown>} work
- */
 export async function withQuota(work) {
   const t0 = Date.now();
   let state = await readState();
@@ -146,9 +165,7 @@ export async function withQuota(work) {
     };
     try {
       await writeState(state);
-    } catch (_) {
-      /* 记账失败不掩盖业务错误 */
-    }
+    } catch (_) {}
     throw err;
   }
 }

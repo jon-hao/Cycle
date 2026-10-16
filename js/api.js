@@ -368,6 +368,11 @@ window.CycleAPI = (function () {
   }
 
   async function fetchMacro(country) {
+    if (cycleApiBase()) {
+      const code = country === "CN" ? "CN" : "US";
+      const d = await hapi("macro", { country: code }, { timeout: 55000 });
+      if (d && d.country) return d;
+    }
     if (country === "CN") return fetchCN();
     if (country === "GLOBAL") return fetchGlobal();
     return fetchUS();
@@ -376,6 +381,18 @@ window.CycleAPI = (function () {
   async function fetchFearGreed(country) {
     // CNN Fear & Greed 面向美股情绪；中国暂无对等公开源
     if (country === "CN") return null;
+    if (cycleApiBase()) {
+      const d = await hapi("feargreed", { country: "US" }, { timeout: 20000 });
+      if (d && d.value != null) {
+        return {
+          value: d.value,
+          labelKey: d.labelKey,
+          label: window.t(d.labelKey || "fgFear"),
+          history: d.history,
+          asOf: d.asOf || null,
+        };
+      }
+    }
     const d = await getJSON(FG);
     if (!d || !Array.isArray(d.values) || !d.values.length) return null;
     const dates = d.dates || [];
@@ -594,22 +611,33 @@ window.CycleAPI = (function () {
     return String(cfg.apiBase || cfg.newsProxy || "").replace(/\/$/, "");
   }
 
-  async function fetchNewsProxy() {
+  function cycleApp() {
+    const cfg = window.CycleConfig || {};
+    return cfg.app || "cycle";
+  }
+
+  /** 统一走 HApi；params 为 query 对象 */
+  async function hapi(flow, params, opts) {
     const base = cycleApiBase();
     if (!base) return null;
-    const d = await getJSON(base + "?flow=news");
+    const q = Object.assign({ flow, app: cycleApp() }, params || {});
+    const qs = Object.keys(q)
+      .filter((k) => q[k] != null && q[k] !== "")
+      .map((k) => encodeURIComponent(k) + "=" + encodeURIComponent(q[k]))
+      .join("&");
+    return getJSON(base + "?" + qs, opts || { timeout: 45000 });
+  }
+
+  async function fetchNewsProxy() {
+    const d = await hapi("news", {}, { timeout: 20000 });
     if (!d || !Array.isArray(d.items) || !d.items.length) return null;
     return d.items;
   }
 
   async function searchWeb(query) {
-    const base = cycleApiBase();
     const q = String(query || "").trim();
-    if (!base || !q) return null;
-    const d = await getJSON(
-      base + "?flow=search&q=" + encodeURIComponent(q),
-      { timeout: 18000 }
-    );
+    if (!q) return null;
+    const d = await hapi("search", { q }, { timeout: 18000 });
     if (!d || !Array.isArray(d.results)) return null;
     return d;
   }
@@ -682,6 +710,17 @@ window.CycleAPI = (function () {
   async function fetchCalendar(fromISO, toISO, country) {
     const from = fromISO.slice(0, 10);
     const to = toISO.slice(0, 10);
+    if (cycleApiBase()) {
+      const code = country === "CN" ? "CN" : "US";
+      const d = await hapi(
+        "calendar",
+        { from, to, country: code },
+        { timeout: 45000 }
+      );
+      if (d && Array.isArray(d.events)) {
+        return d.events.length ? d.events : null;
+      }
+    }
     const [fc, pa, holidays] = await Promise.all([
       getJSON(`${FC}/calendar?from=${from}&to=${to}&impact=high&limit=200`),
       getJSON(PA),

@@ -1,14 +1,13 @@
 #!/bin/bash
-# 创建/更新 Lambda「HApi」（按 flow 分流），并写回 js/config.js 的 apiBase。
-# 不要把账号密码交给任何人。用 IAM 访问密钥或 aws login / SSO。
+# 创建/更新 Lambda「HApi」+ DynamoDB 表，并写回 js/config.js 的 apiBase。
 set -euo pipefail
 
 REGION="${AWS_REGION:-ap-southeast-1}"
 FUNC="${HAPI_FUNC:-HApi}"
 ROLE="${HAPI_ROLE:-HApi-role}"
+TABLE="${HAPI_TABLE:-HApi}"
 OLD_FUNCS="${HAPI_OLD_FUNCS:-Cycle cycle-news}"
 QUOTA_PARAM="${HAPI_QUOTA_PARAM:-/HApi/quota}"
-# 软上限：低于账号 Always Free，给 429 与其它函数留余量
 MAX_REQ="${HAPI_MAX_REQUESTS:-900000}"
 MAX_GB="${HAPI_MAX_GB_SECONDS:-360000}"
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -35,17 +34,47 @@ if ! aws iam get-role --role-name "$ROLE" >/dev/null 2>&1; then
   sleep 10
 fi
 
-# SSM Standard Parameter 存月度用量（免费）；仅限本参数
+# DynamoDB Always Free：provisioned 25 RCU/WCU；本表用 5/5 留余量
+if ! aws dynamodb describe-table --table-name "$TABLE" --region "$REGION" >/dev/null 2>&1; then
+  echo "creating DynamoDB table $TABLE ..."
+  aws dynamodb create-table \
+    --table-name "$TABLE" \
+    --attribute-definitions \
+      AttributeName=pk,AttributeType=S \
+      AttributeName=sk,AttributeType=S \
+    --key-schema \
+      AttributeName=pk,KeyType=HASH \
+      AttributeName=sk,KeyType=RANGE \
+    --billing-mode PROVISIONED \
+    --provisioned-throughput ReadCapacityUnits=5,WriteCapacityUnits=5 \
+    --region "$REGION" >/dev/null
+  aws dynamodb wait table-exists --table-name "$TABLE" --region "$REGION"
+  aws dynamodb update-time-to-live \
+    --table-name "$TABLE" \
+    --time-to-live-specification Enabled=true,AttributeName=ttl \
+    --region "$REGION" >/dev/null || true
+fi
+
 aws iam put-role-policy \
   --role-name "$ROLE" \
-  --policy-name HApiQuotaSSM \
+  --policy-name HApiDataAccess \
   --policy-document "{
     \"Version\":\"2012-10-17\",
-    \"Statement\":[{
-      \"Effect\":\"Allow\",
-      \"Action\":[\"ssm:GetParameter\",\"ssm:PutParameter\"],
-      \"Resource\":\"arn:aws:ssm:${REGION}:${ACCOUNT}:parameter${QUOTA_PARAM}\"
-    }]
+    \"Statement\":[
+      {
+        \"Effect\":\"Allow\",
+        \"Action\":[\"ssm:GetParameter\",\"ssm:PutParameter\"],
+        \"Resource\":\"arn:aws:ssm:${REGION}:${ACCOUNT}:parameter${QUOTA_PARAM}\"
+      },
+      {
+        \"Effect\":\"Allow\",
+        \"Action\":[
+          \"dynamodb:GetItem\",\"dynamodb:PutItem\",\"dynamodb:UpdateItem\",
+          \"dynamodb:Query\",\"dynamodb:DescribeTable\"
+        ],
+        \"Resource\":\"arn:aws:dynamodb:${REGION}:${ACCOUNT}:table/${TABLE}\"
+      }
+    ]
   }" >/dev/null
 
 echo "npm install..."
@@ -53,7 +82,7 @@ echo "npm install..."
 
 ZIP="$(mktemp -t HApi).zip"
 rm -f "$ZIP"
-(cd "$DIR" && zip -q -r "$ZIP" index.mjs quota.mjs flows package.json package-lock.json node_modules)
+(cd "$DIR" && zip -q -r "$ZIP" index.mjs quota.mjs lib flows package.json package-lock.json node_modules)
 
 ENV_JSON="$(python3 - <<PY
 import json
@@ -62,6 +91,7 @@ print(json.dumps({
     "HAPI_QUOTA_PARAM": "${QUOTA_PARAM}",
     "HAPI_MAX_REQUESTS": "${MAX_REQ}",
     "HAPI_MAX_GB_SECONDS": "${MAX_GB}",
+    "HAPI_TABLE": "${TABLE}",
   }
 }))
 PY
@@ -76,8 +106,8 @@ if aws lambda get-function --function-name "$FUNC" --region "$REGION" >/dev/null
   aws lambda update-function-configuration \
     --function-name "$FUNC" \
     --runtime nodejs22.x \
-    --timeout 20 \
-    --memory-size 256 \
+    --timeout 60 \
+    --memory-size 512 \
     --environment "$ENV_JSON" \
     --region "$REGION" >/dev/null
   aws lambda wait function-updated --function-name "$FUNC" --region "$REGION"
@@ -88,14 +118,13 @@ else
     --role "$ROLE_ARN" \
     --handler index.handler \
     --zip-file "fileb://${ZIP}" \
-    --timeout 20 \
-    --memory-size 256 \
+    --timeout 60 \
+    --memory-size 512 \
     --environment "$ENV_JSON" \
     --region "$REGION" >/dev/null
 fi
 rm -f "$ZIP"
 
-# CORS 只配在 Function URL；handler 不再返回 ACAO，避免重复头
 if ! aws lambda get-function-url-config --function-name "$FUNC" --region "$REGION" >/dev/null 2>&1; then
   aws lambda create-function-url-config \
     --function-name "$FUNC" \
@@ -149,8 +178,9 @@ import pathlib, sys
 path, url = sys.argv[1], sys.argv[2].rstrip("/")
 pathlib.Path(path).write_text(
     "window.CycleConfig = {\n"
-    "  // HApi Lambda Function URL。按 ?flow= 分流，如 news。\n"
+    "  // HApi：多应用共用。Cycle 固定 app=cycle。\n"
     f'  apiBase: "{url}",\n'
+    '  app: "cycle",\n'
     "};\n",
     encoding="utf-8",
 )

@@ -1,33 +1,40 @@
 /**
- * HApi 入口：按 flow 分流（账号级共用 API）。
+ * HApi — 账号级共用 HTTP API（Cycle 及其他应用）。
  *
- * 调用方式（任选其一）：
- *   GET  ?flow=news
- *   POST {"flow":"news", ...}
- *   路径 /news  （Function URL 会把 path 带进来）
+ * 约定：
+ *   GET/POST Function URL
+ *   flow   = news | macro | feargreed | calendar | search | quota | catalog | health
+ *   app    = 租户/命名空间（影响 DynamoDB 缓存键，默认 public）
  *
- * CORS 只由 Function URL 配置注入，响应里不再写 ACAO，避免重复头。
- * `new` 视为 `news` 的别名。后续在 flows/ 下加模块，并注册到 FLOWS 即可。
+ * CORS 仅由 Function URL 配置注入。
  */
 
 import { handleNews } from "./flows/news.mjs";
 import { handleSearch } from "./flows/search.mjs";
+import { handleMacro } from "./flows/macro.mjs";
+import { handleFearGreed } from "./flows/feargreed.mjs";
+import { handleCalendar } from "./flows/calendar.mjs";
+import { handleCatalog, handleHealth } from "./flows/catalog.mjs";
 import { withQuota, quotaStatus } from "./quota.mjs";
 
 const FLOWS = {
   news: handleNews,
   new: handleNews,
   search: handleSearch,
+  macro: handleMacro,
+  feargreed: handleFearGreed,
+  calendar: handleCalendar,
+  catalog: handleCatalog,
+  health: handleHealth,
   quota: async () => quotaStatus(),
 };
 
-function json(statusCode, obj, extraHeaders) {
+function json(statusCode, obj) {
   return {
     statusCode,
     headers: {
       "content-type": "application/json; charset=utf-8",
-      "cache-control": statusCode === 200 ? "public, max-age=60" : "no-store",
-      ...(extraHeaders || {}),
+      "cache-control": statusCode === 200 ? "public, max-age=30" : "no-store",
     },
     body: JSON.stringify(obj),
   };
@@ -51,7 +58,6 @@ function normalizeFlow(value) {
   return String(value).trim().toLowerCase();
 }
 
-/** 从 query / path / JSON body 解析 flow */
 function resolveFlow(event, payload) {
   const q = event?.queryStringParameters || {};
   const fromQuery = normalizeFlow(q.flow || q.type || q.action);
@@ -85,18 +91,21 @@ export async function handler(event) {
 
   const query = event?.queryStringParameters || {};
   const body = method === "POST" ? parseBody(event) : {};
-  // GET 的 q / flow 等在 query；POST 可覆盖
-  const payload = Object.assign({}, query, body);
+  const payload = Object.assign({ app: "public" }, query, body);
+  if (!payload.app) payload.app = "public";
+
   const flow = resolveFlow(event, payload);
   const run = FLOWS[flow];
   if (!run) {
     return json(400, {
       error: "unknown flow",
       flow: flow || null,
+      hint: "GET ?flow=catalog",
       flows: Object.keys(FLOWS).filter((k) => k !== "new"),
     });
   }
 
+  // catalog / health 不计入软配额重活，但仍记账（withQuota 统一）
   try {
     const gated = await withQuota(() => run(payload));
     if (!gated.ok) {
@@ -111,8 +120,8 @@ export async function handler(event) {
     return json(200, gated.result);
   } catch (err) {
     const msg = String(err && err.message ? err.message : err);
-    if (/SSM|Parameter|credentials|AccessDenied/i.test(msg)) {
-      return json(503, { flow, error: "quota store unavailable", detail: msg });
+    if (/SSM|Parameter|DynamoDB|credentials|AccessDenied|ResourceNotFound/i.test(msg)) {
+      return json(503, { flow, error: "store unavailable", detail: msg });
     }
     return json(502, { flow, error: msg });
   }
