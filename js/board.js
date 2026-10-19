@@ -71,16 +71,21 @@ window.CycleBoard = (function () {
     const api = window.CycleAPI;
     if (!api) return null;
     const { from, to } = rangeForCalendar();
+    // 新闻不在预热里打，避免与新闻页首屏抢同一请求
     inflight = Promise.all([
       api.fetchMacro("US").catch(() => null),
       api.fetchMacro("CN").catch(() => null),
       api.fetchFearGreed("US").catch(() => null),
-      api.fetchImportantNews("US").catch(() => null),
-      api.fetchImportantNews("CN").catch(() => null),
       api.fetchCalendar(from, to, "US").catch(() => null),
       api.fetchCalendar(from, to, "CN").catch(() => null),
     ])
-      .then(([macroUS, macroCN, fgUS, newsUS, newsCN, calUS, calCN]) => {
+      .then(async ([macroUS, macroCN, fgUS, calUS, calCN]) => {
+        let newsUS = null;
+        let newsCN = null;
+        try {
+          newsUS = await api.fetchImportantNews("US");
+          newsCN = await api.fetchImportantNews("CN");
+        } catch (_) {}
         mem = {
           at: Date.now(),
           country: (window.CycleState && window.CycleState.country) || "US",

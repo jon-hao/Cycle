@@ -329,7 +329,10 @@ window.CycleSelect = (function () {
     els.indicator.classList.toggle("no-anim", !animate);
   }
 
+  let pageRenderSeq = 0;
+
   async function renderPage(withFx, opts) {
+    const seq = ++pageRenderSeq;
     const page = window.CycleState.page;
     document.querySelectorAll(".nav-btn").forEach((b) => {
       b.classList.toggle("active", b.dataset.page === page);
@@ -340,19 +343,32 @@ window.CycleSelect = (function () {
       els.main.classList.remove("page-enter");
       els.main.classList.add("page-exit");
       await new Promise((r) => setTimeout(r, 160));
+      if (seq !== pageRenderSeq) return;
     }
 
     els.main.classList.remove("page-exit");
     els.main.classList.add("page-enter");
 
     const view = window.CyclePages[page];
-    if (view && view.render) await view.render(els.main, opts || {});
+    if (view && view.render) {
+      try {
+        await view.render(els.main, opts || {});
+      } catch (e) {
+        console.warn("[Cycle] page render", page, e);
+        if (seq === pageRenderSeq) {
+          els.main.innerHTML =
+            `<div class="empty">${window.t("missing") || "加载失败"}</div>`;
+        }
+      }
+    }
   }
 
   function setPage(page) {
     if (window.CycleState.page === page) return;
     window.CycleState.page = page;
-    location.hash = page;
+    if (location.hash.replace(/^#/, "") !== page) {
+      location.hash = page;
+    }
     renderPage(true);
   }
 

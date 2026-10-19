@@ -93,6 +93,14 @@ function toISO(time) {
   return Number.isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
 }
 
+/** 早餐/周报类汇总，不是事件快讯 */
+export function isDigestNoise(title, content) {
+  const t = String(title || "") + " " + String(content || "");
+  return /全球财经早餐|金十数据.*早餐|一周展望|本周展望|下周展望|周末复盘|每日复盘|一周复盘/.test(
+    t
+  );
+}
+
 export function mapFlashes(rows) {
   if (!Array.isArray(rows)) return [];
   const out = [];
@@ -103,6 +111,7 @@ export function mapFlashes(rows) {
     if (!flash || !body || (flash.extras && flash.extras.ad)) continue;
     const { title, content } = parseTitleContent(body);
     if (!title) continue;
+    if (isDigestNoise(title, content)) continue;
     rank += 1;
     const id = String(row.item_id || flash.id || title);
     const link =
@@ -148,6 +157,7 @@ export function mapFlashApiList(rows) {
       }
     }
     if (!title) continue;
+    if (isDigestNoise(title, content)) continue;
     rank += 1;
     const id = String(item.id || title);
     const text = title + " " + content;

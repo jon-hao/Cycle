@@ -464,14 +464,8 @@ window.CycleAPI = (function () {
     return guessNewsCountry(text).country;
   }
 
-  function needsCountryModel(item) {
-    const c = item && item.countryGuess;
-    const conf = Number(item && item.countryConfidence);
-    if (c !== "US" && c !== "CN") return true;
-    return !(conf >= 0.6);
-  }
-
-  async function refineNewsCountries(items) {
+  function refineNewsCountries(items) {
+    // 列表路径只用规则，避免 WebLLM 分类把首屏拖死
     const list = Array.isArray(items) ? items.slice() : [];
     list.forEach((n) => {
       if (n.countryGuess && n.countryConfidence != null) return;
@@ -482,36 +476,6 @@ window.CycleAPI = (function () {
       n.countryConfidence = geo.confidence;
       n.countrySource = geo.countrySource;
     });
-
-    const unsure = list.filter(needsCountryModel);
-    if (
-      unsure.length &&
-      window.CycleLLM &&
-      typeof window.CycleLLM.classifyNewsCountries === "function"
-    ) {
-      const st =
-        window.CycleLLM.getStatus && window.CycleLLM.getStatus();
-      // 仅在模型已就绪时调用，避免新闻页强制下载
-      if (st && st.status === "ready") {
-        const mapped = await window.CycleLLM.classifyNewsCountries(
-          unsure.map((n) => ({
-            id: n.id,
-            title: n.titleRaw || n.title,
-            summary: n.summaryRaw || n.summary || n.content || "",
-          }))
-        );
-        if (mapped && typeof mapped === "object") {
-          list.forEach((n) => {
-            const c = mapped[n.id];
-            if (c === "US" || c === "CN" || c === "GLOBAL") {
-              n.countryGuess = c;
-              n.countryConfidence = 0.85;
-              n.countrySource = "model";
-            }
-          });
-        }
-      }
-    }
     return list;
   }
 
@@ -629,19 +593,48 @@ window.CycleAPI = (function () {
     return getJSON(base + "?" + qs, opts || { timeout: 45000 });
   }
 
+  let newsInflight = null;
+  let newsMemo = { at: 0, items: null };
+
+  function isDigestNoise(title, content) {
+    const t = String(title || "") + " " + String(content || "");
+    return /全球财经早餐|金十数据.*早餐|一周展望|本周展望|下周展望|周末复盘|每日复盘|一周复盘/.test(
+      t
+    );
+  }
+
   async function fetchNewsProxy() {
-    let lastErr = null;
-    for (let i = 0; i < 2; i++) {
-      try {
-        const d = await hapi("news", {}, { timeout: 15000 });
-        if (d && Array.isArray(d.items) && d.items.length) return d.items;
-      } catch (e) {
-        lastErr = e;
-      }
-      if (i === 0) await new Promise((r) => setTimeout(r, 250));
+    const now = Date.now();
+    // 短记忆：避免进页与后台预热同时打两次，也避免首进卡死
+    if (newsMemo.items && now - newsMemo.at < 20_000) {
+      return newsMemo.items;
     }
-    if (lastErr) console.warn("[Cycle] news proxy", lastErr);
-    return null;
+    if (newsInflight) return newsInflight;
+
+    newsInflight = (async () => {
+      let lastErr = null;
+      for (let i = 0; i < 2; i++) {
+        try {
+          const d = await hapi("news", {}, { timeout: 18000 });
+          if (d && Array.isArray(d.items) && d.items.length) {
+            const items = d.items.filter(
+              (n) => !isDigestNoise(n.title, n.summary || n.content)
+            );
+            newsMemo = { at: Date.now(), items };
+            return items;
+          }
+        } catch (e) {
+          lastErr = e;
+        }
+        if (i === 0) await new Promise((r) => setTimeout(r, 250));
+      }
+      if (lastErr) console.warn("[Cycle] news proxy", lastErr);
+      return null;
+    })().finally(() => {
+      newsInflight = null;
+    });
+
+    return newsInflight;
   }
 
   async function searchWeb(query) {
@@ -660,7 +653,7 @@ window.CycleAPI = (function () {
       const ranked = proxied
         .slice()
         .sort((a, b) => (a.rank || 0) - (b.rank || 0));
-      const tagged = await refineNewsCountries(ranked);
+      const tagged = refineNewsCountries(ranked);
       return filterNewsByCountry(tagged, country).slice(0, 60);
     }
     const feeds = newsFeedsFor(country || "GLOBAL");
@@ -670,12 +663,13 @@ window.CycleAPI = (function () {
     batches.flat().forEach((n) => {
       const key = (n.title || "").slice(0, 80);
       if (!key || seen.has(key)) return;
+      if (isDigestNoise(n.title, n.summary || n.content)) return;
       seen.add(key);
       items.push(n);
     });
     items.sort((a, b) => new Date(b.time) - new Date(a.time));
     if (!items.length) return null;
-    items = await refineNewsCountries(items);
+    items = refineNewsCountries(items);
     items = filterNewsByCountry(items, country);
     return items.slice(0, 60);
   }

@@ -1,6 +1,8 @@
 window.CyclePages = window.CyclePages || {};
 
 window.CyclePages.news = (function () {
+  let renderSeq = 0;
+
   function formatTime(iso) {
     if (window.CycleTZ) return window.CycleTZ.formatNewsStamp(iso);
     try {
@@ -64,7 +66,9 @@ window.CyclePages.news = (function () {
             <time class="card-date">${formatTime(n.time)}</time>
             <span id="newsExtra"></span>
           </div>
-          <p class="card-content news-detail-body" id="newsSummary">${window.t("translating")}</p>
+          <p class="card-content news-detail-body" id="newsSummary">${escapeHtml(
+            n.contentRaw || n.summaryRaw || n.content || n.summary || ""
+          ) || window.t("translating")}</p>
           <div class="ai-host" id="aiNewsHost"></div>
         `);
 
@@ -101,6 +105,7 @@ window.CyclePages.news = (function () {
   }
 
   async function render(root) {
+    const seq = ++renderSeq;
     const country = window.CycleState.country;
     const lang = window.CycleState.lang;
 
@@ -113,13 +118,20 @@ window.CyclePages.news = (function () {
       </section>`;
 
     const box = root.querySelector("#newsList");
-    const raw = await window.CycleAPI.fetchImportantNews(country);
+    let raw = null;
+    try {
+      raw = await window.CycleAPI.fetchImportantNews(country);
+    } catch (e) {
+      console.warn("[Cycle] news render", e);
+      raw = null;
+    }
+    if (seq !== renderSeq) return;
+
     if (!raw || !raw.length) {
       paintList(box, []);
       return;
     }
 
-    // 先原文上屏，避免翻译拖死加载
     const list = raw.slice(0, 40).map((item, idx) =>
       Object.assign({}, item, {
         displayRank: idx + 1,
@@ -133,7 +145,7 @@ window.CyclePages.news = (function () {
     wireCards(root, list);
 
     if (!window.CycleTranslate) return;
-    // 后台翻标题，完成再刷一次列表
+    // 后台翻标题；不阻塞首屏
     Promise.all(
       list.map(async (item) => {
         try {
@@ -145,6 +157,7 @@ window.CyclePages.news = (function () {
         return item;
       })
     ).then((done) => {
+      if (seq !== renderSeq) return;
       if (window.CycleState.page !== "news") return;
       if (window.CycleState.country !== country) return;
       paintList(box, done);
