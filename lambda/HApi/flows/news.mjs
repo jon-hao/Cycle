@@ -96,9 +96,7 @@ function toISO(time) {
 /** 早餐/周报类汇总，不是事件快讯 */
 export function isDigestNoise(title, content) {
   const t = String(title || "") + " " + String(content || "");
-  return /全球财经早餐|金十数据.*早餐|一周展望|本周展望|下周展望|周末复盘|每日复盘|一周复盘/.test(
-    t
-  );
+  return /财经早餐|一周展望|本周展望|下周展望|周末复盘|每日复盘|一周复盘/.test(t);
 }
 
 export function mapFlashes(rows) {
