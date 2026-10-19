@@ -516,10 +516,11 @@ window.CycleAPI = (function () {
   }
 
   function filterNewsByCountry(items, country) {
-    if (country !== "US" && country !== "CN") return items.slice();
-    return items
-      .filter((n) => n.countryGuess === country)
-      .sort((a, b) => (a.rank || 0) - (b.rank || 0));
+    const all = (items || []).slice().sort((a, b) => (a.rank || 0) - (b.rank || 0));
+    if (country !== "US" && country !== "CN") return all;
+    const matched = all.filter((n) => n.countryGuess === country);
+    // 国家过滤为空时回退全量，避免页面一直「暂无新闻」
+    return matched.length ? matched : all;
   }
 
   function stripHtml(s) {

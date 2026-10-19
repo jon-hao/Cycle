@@ -1,25 +1,15 @@
 /**
- * 金十「重要事件」专题（sort=priority 的数组顺序即榜单排名）。
- * 鉴权头必带；不做持久/内存缓存，保证实时。
+ * 金十「重要事件」专题。
+ * 鉴权头 / baseUrl 从专题页动态解析；失败则强制刷新请求头后重试。
  */
 
-const UPSTREAM =
-  "https://1b8d6028d99849668a6d8755c79e650f.z3c.jin10.com/top/flashsByTime?time_type=time&sort=priority";
-
-const UPSTREAM_HEADERS = {
-  "x-app-id": "EzF2s2HxxU0U5bYa",
-  "x-version": "1.0.0",
-  "content-type": "application/json",
-  accept: "application/json",
-  referer: "https://topic17z2k407.jin10.com/",
-  "user-agent":
-    "Mozilla/5.0 (compatible; HApi/1.0; +https://github.com/jon-hao/Cycle)",
-};
+import { resolveJin10Auth, clearJin10AuthMemo } from "../lib/jin10Auth.mjs";
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+/** 规则国家判断（与前端 CycleAPI.guessNewsCountry 保持同思路） */
 export function guessNewsCountry(text) {
   const t = String(text || "");
   let cn = 0;
@@ -137,22 +127,108 @@ export function mapFlashes(rows) {
   return out;
 }
 
-async function fetchUpstreamOnce() {
+/** flash-api 备用：重要快讯（鉴权头不同） */
+export function mapFlashApiList(rows) {
+  if (!Array.isArray(rows)) return [];
+  const out = [];
+  let rank = 0;
+  for (const item of rows) {
+    if (!item || item.type === 1) continue;
+    if (!(item.important === 1 || item.important === true)) continue;
+    const data = item.data || {};
+    let content = cleanText(data.content || "");
+    let title = cleanText(data.title || data.vip_title || "");
+    if (!title) {
+      const m = content.match(/^【([^】]+)】/);
+      if (m) {
+        title = m[1].trim();
+        content = content.replace(/^【[^】]+】/, "").trim();
+      } else {
+        title = content.slice(0, 100);
+      }
+    }
+    if (!title) continue;
+    rank += 1;
+    const id = String(item.id || title);
+    const text = title + " " + content;
+    const geo = guessNewsCountry(text);
+    out.push({
+      id,
+      rank,
+      title,
+      summary: content,
+      content,
+      time: toISO(item.time),
+      link: data.link || "https://www.jin10.com/flash",
+      important: true,
+      countryGuess: geo.country,
+      countryConfidence: geo.confidence,
+      countrySource: geo.countrySource,
+    });
+  }
+  return out;
+}
+
+async function fetchUpstreamOnce(auth) {
+  const url = new URL(auth.baseUrl);
+  url.searchParams.set("time_type", "time");
+  url.searchParams.set("sort", "priority");
+
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 10000);
   try {
-    const res = await fetch(UPSTREAM, {
+    const res = await fetch(url.toString(), {
       signal: ctrl.signal,
-      headers: UPSTREAM_HEADERS,
+      headers: auth.headers,
     });
     if (!res.ok) throw new Error("upstream " + res.status);
     const data = await res.json();
-    if (!data || data.status !== 200) throw new Error("upstream status");
+    if (!data || data.status !== 200) {
+      throw new Error("upstream status " + (data && data.status));
+    }
+    const items = mapFlashes(data.data);
+    if (!items.length) throw new Error("upstream empty");
     return {
       flow: "news",
       source: "jin10",
       fetchedAt: new Date().toISOString(),
-      items: mapFlashes(data.data),
+      appId: auth.appId,
+      version: auth.version,
+      items,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function fetchFlashApiFallback() {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 10000);
+  try {
+    const res = await fetch(
+      "https://flash-api.jin10.com/get_flash_list?channel=-8200&vip=1",
+      {
+        signal: ctrl.signal,
+        headers: {
+          "x-app-id": "bVBF4FyRTn5NJF5n",
+          "x-version": "1.0.0",
+          accept: "application/json",
+          referer: "https://www.jin10.com/",
+          origin: "https://www.jin10.com",
+          "user-agent":
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        },
+      }
+    );
+    if (!res.ok) throw new Error("flash-api " + res.status);
+    const data = await res.json();
+    const items = mapFlashApiList(data && data.data);
+    if (!items.length) throw new Error("flash-api empty");
+    return {
+      flow: "news",
+      source: "jin10-flash-api",
+      fetchedAt: new Date().toISOString(),
+      items,
     };
   } finally {
     clearTimeout(timer);
@@ -162,14 +238,35 @@ async function fetchUpstreamOnce() {
 /** @param {Record<string, unknown>} [_payload] */
 export async function handleNews(_payload) {
   let lastErr;
-  for (let i = 0; i < 2; i++) {
-    try {
-      return await fetchUpstreamOnce();
-    } catch (e) {
-      lastErr = e;
-      await sleep(200 * (i + 1));
-    }
+
+  // 1) 当前（或缓存的）动态请求头
+  try {
+    const auth = await resolveJin10Auth({ force: false });
+    return await fetchUpstreamOnce(auth);
+  } catch (e) {
+    lastErr = e;
   }
+
+  await sleep(150);
+
+  // 2) 金十可能轮换了头：强制从专题页重新解析后再打
+  try {
+    clearJin10AuthMemo();
+    const auth = await resolveJin10Auth({ force: true });
+    return await fetchUpstreamOnce(auth);
+  } catch (e) {
+    lastErr = e;
+  }
+
+  await sleep(150);
+
+  // 3) 专题接口仍失败 → flash-api 重要快讯兜底
+  try {
+    return await fetchFlashApiFallback();
+  } catch (e) {
+    lastErr = e;
+  }
+
   return {
     flow: "news",
     source: "jin10",
