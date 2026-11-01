@@ -1,7 +1,7 @@
 {
   "name": "Cycle",
   "short_name": "Cycle",
-  "description": "Global macro board with Kondratiev context and local LLM briefs",
+  "description": "Private macro dashboard",
   "start_url": "./",
   "display": "standalone",
   "background_color": "#f4f7fb",
