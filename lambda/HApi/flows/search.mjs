@@ -3,6 +3,8 @@
  * GET/POST ?flow=search&q=...
  */
 
+import { srcDuckDuckGo, srcGoogleNewsRss } from "../lib/sources.mjs";
+
 function stripHtml(s) {
   return String(s || "")
     .replace(/&lt;/gi, "<")
@@ -41,8 +43,11 @@ function parseRssItems(xml, limit) {
 }
 
 async function duckDuckGo(q) {
+  const base = srcDuckDuckGo();
   const url =
-    "https://api.duckduckgo.com/?format=json&no_html=1&skip_disambig=1&q=" +
+    base +
+    (base.includes("?") ? "&" : "?") +
+    "format=json&no_html=1&skip_disambig=1&q=" +
     encodeURIComponent(q);
   const res = await fetch(url, {
     headers: { accept: "application/json", "user-agent": "HApi/1.0" },
@@ -75,8 +80,11 @@ async function duckDuckGo(q) {
 }
 
 async function googleNews(q) {
+  const base = srcGoogleNewsRss();
   const url =
-    "https://news.google.com/rss/search?q=" +
+    base +
+    (base.includes("?") ? "&" : "?") +
+    "q=" +
     encodeURIComponent(q) +
     "&hl=zh-CN&gl=US&ceid=US:zh-Hans";
   const res = await fetch(url, {

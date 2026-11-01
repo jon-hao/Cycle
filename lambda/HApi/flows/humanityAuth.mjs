@@ -1,58 +1,25 @@
 /**
  * Humanity 单用户登录（不支持注册）。
- * DynamoDB：pk=humanity#user / sk=<email>；pk=humanity#session#<token> / sk=v1
- * 密码只存 scrypt 哈希，仓库内无明文。
+ * 邮箱/密码只读 Lambda Env：HUMANITY_EMAIL / HUMANITY_PASSWORD
+ * 会话存 DynamoDB：pk=humanity#session#<token>
  */
 
-import { randomBytes, scryptSync, timingSafeEqual } from "crypto";
+import { randomBytes, timingSafeEqual } from "crypto";
 import { dbGet, dbPut, dbDelete } from "../lib/db.mjs";
+import { humanityEmail, humanityPassword } from "../lib/sources.mjs";
 
 const APP = "humanity";
-const EMAIL = "jondd4418@gmail.com";
-/** 引导写入 DynamoDB 的固定哈希（对应部署时设定的单用户密码） */
-const BOOT_SALT = "ea188191fbda80435cf07905cb1c0c02";
-const BOOT_HASH =
-  "c4b483eb79598611d87e9dc610c79030bfa0bbafcf118cb77fcd95a9a8b668436dc7b7e9c12b917d1338dbf893f5367b028dfef7986069914cf9cfa425fc0810";
-
 const SESSION_DAYS = 365;
-
-function userPk() {
-  return APP + "#user";
-}
 
 function sessionPk(token) {
   return APP + "#session#" + token;
 }
 
-function hashPassword(password, saltHex) {
-  return scryptSync(String(password), saltHex, 64).toString("hex");
-}
-
-function safeEqualHex(a, b) {
-  try {
-    const ba = Buffer.from(String(a), "hex");
-    const bb = Buffer.from(String(b), "hex");
-    if (ba.length !== bb.length) return false;
-    return timingSafeEqual(ba, bb);
-  } catch {
-    return false;
-  }
-}
-
-async function ensureUser() {
-  const existing = await dbGet(userPk(), EMAIL);
-  if (existing && existing.passwordHash && existing.passwordSalt) return existing;
-  const item = {
-    pk: userPk(),
-    sk: EMAIL,
-    email: EMAIL,
-    passwordSalt: BOOT_SALT,
-    passwordHash: BOOT_HASH,
-    createdAt: new Date().toISOString(),
-    app: APP,
-  };
-  await dbPut(item);
-  return item;
+function safeEqualStr(a, b) {
+  const ba = Buffer.from(String(a), "utf8");
+  const bb = Buffer.from(String(b), "utf8");
+  if (ba.length !== bb.length) return false;
+  return timingSafeEqual(ba, bb);
 }
 
 function bearer(payload) {
@@ -92,19 +59,32 @@ export async function handleHumanityAuth(payload) {
     return { flow: "hauth", ok: true, loggedOut: true };
   }
 
-  // login
+  let expectedEmail;
+  let expectedPassword;
+  try {
+    expectedEmail = humanityEmail();
+    expectedPassword = humanityPassword();
+  } catch (e) {
+    return {
+      flow: "hauth",
+      ok: false,
+      __status: 503,
+      error: "auth env not configured",
+      detail: String(e && e.message ? e.message : e),
+    };
+  }
+
   const email = String(payload.email || "").trim().toLowerCase();
   const password = String(payload.password || "");
   if (!email || !password) {
-    return { flow: "hauth", ok: false, __status: 400, error: "email and password required" };
+    return {
+      flow: "hauth",
+      ok: false,
+      __status: 400,
+      error: "email and password required",
+    };
   }
-  if (email !== EMAIL) {
-    return { flow: "hauth", ok: false, __status: 401, error: "invalid credentials" };
-  }
-
-  const user = await ensureUser();
-  const got = hashPassword(password, user.passwordSalt);
-  if (!safeEqualHex(got, user.passwordHash)) {
+  if (!safeEqualStr(email, expectedEmail) || !safeEqualStr(password, expectedPassword)) {
     return { flow: "hauth", ok: false, __status: 401, error: "invalid credentials" };
   }
 
@@ -113,7 +93,7 @@ export async function handleHumanityAuth(payload) {
   await dbPut({
     pk: sessionPk(token),
     sk: "v1",
-    email: EMAIL,
+    email: expectedEmail,
     app: APP,
     createdAt: new Date().toISOString(),
     ttl,
@@ -122,7 +102,7 @@ export async function handleHumanityAuth(payload) {
   return {
     flow: "hauth",
     ok: true,
-    email: EMAIL,
+    email: expectedEmail,
     token,
     expiresAt: new Date(ttl * 1000).toISOString(),
   };

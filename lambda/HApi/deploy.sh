@@ -70,7 +70,7 @@ aws iam put-role-policy \
         \"Effect\":\"Allow\",
         \"Action\":[
           \"dynamodb:GetItem\",\"dynamodb:PutItem\",\"dynamodb:UpdateItem\",
-          \"dynamodb:Query\",\"dynamodb:DescribeTable\"
+          \"dynamodb:DeleteItem\",\"dynamodb:Query\",\"dynamodb:DescribeTable\"
         ],
         \"Resource\":\"arn:aws:dynamodb:${REGION}:${ACCOUNT}:table/${TABLE}\"
       }
@@ -84,16 +84,64 @@ ZIP="$(mktemp -t HApi).zip"
 rm -f "$ZIP"
 (cd "$DIR" && zip -q -r "$ZIP" index.mjs quota.mjs lib flows package.json package-lock.json node_modules)
 
-ENV_JSON="$(python3 - <<PY
-import json
-print(json.dumps({
-  "Variables": {
-    "HAPI_QUOTA_PARAM": "${QUOTA_PARAM}",
-    "HAPI_MAX_REQUESTS": "${MAX_REQ}",
-    "HAPI_MAX_GB_SECONDS": "${MAX_GB}",
-    "HAPI_TABLE": "${TABLE}",
-  }
-}))
+# 上游源 / 密钥只进 Lambda Env：默认值 + 可选 .env.secrets（gitignored）
+ENV_JSON="$(
+  QUOTA_PARAM="$QUOTA_PARAM" MAX_REQ="$MAX_REQ" MAX_GB="$MAX_GB" TABLE="$TABLE" DIR="$DIR" \
+  python3 - <<'PY'
+import json, os, pathlib
+dir_ = pathlib.Path(os.environ["DIR"])
+vars_ = {
+  "HAPI_QUOTA_PARAM": os.environ["QUOTA_PARAM"],
+  "HAPI_MAX_REQUESTS": os.environ["MAX_REQ"],
+  "HAPI_MAX_GB_SECONDS": os.environ["MAX_GB"],
+  "HAPI_TABLE": os.environ["TABLE"],
+  # Cycle sources
+  "SRC_MACRORADAR": "https://www.macroradar.io/api/v1",
+  "SRC_CHINADATA": "https://chinadata.live/api/v2",
+  "SRC_EASTMONEY": "https://datacenter-web.eastmoney.com/api/data/v1/get",
+  "SRC_FINANCECALENDAR": "https://www.financecalendar.com/wp-json/fc/v1",
+  "SRC_PIPATLAS": "https://pipatlas.com/api/calendar",
+  "SRC_FOREXFACTORY": "https://nfs.faireconomy.media/ff_calendar_thisweek.json",
+  "SRC_FEARGREED": "https://fearandgreedgraph.com/api/fear-greed",
+  "SRC_FEARGREED_CN_SNAP": "https://api.fusionintel.net/v1/public/feargreed/a_stock_macro/latest",
+  "SRC_FEARGREED_CN_STM": "https://stock-stm.asia/api/data?days=90",
+  "SRC_DUCKDUCKGO": "https://api.duckduckgo.com/",
+  "SRC_GOOGLENEWS_RSS": "https://news.google.com/rss/search",
+  # Jin10
+  "SRC_JIN10_TOPIC_ORIGIN": "https://topic17z2k407.jin10.com",
+  "SRC_JIN10_TOPIC_PAGE": "https://topic17z2k407.jin10.com/topic/jin10_important_news.html",
+  "SRC_JIN10_FLASH_BASE": "https://1b8d6028d99849668a6d8755c79e650f.z3c.jin10.com/top/flashsByTime",
+  "SRC_JIN10_FLASH_API": "https://flash-api.jin10.com/get_flash_list?channel=-8200&vip=1",
+  "SRC_JIN10_DETAIL_BASE": "https://flash.jin10.com/detail",
+  "SRC_JIN10_SITE": "https://www.jin10.com",
+  "SRC_JIN10_APP_ID": "EzF2s2HxxU0U5bYa",
+  "SRC_JIN10_VERSION": "1.0.0",
+  "SRC_JIN10_FLASH_APP_ID": "bVBF4FyRTn5NJF5n",
+  "SRC_JIN10_FLASH_VERSION": "1.0.0",
+  # Humanity video sources
+  "SRC_EPORNER_SEARCH": "https://www.eporner.com/api/v2/video/search/",
+  "SRC_EPORNER_SITE": "https://www.eporner.com",
+  "SRC_PORNHUB_SEARCH": "https://www.pornhub.com/video/search",
+  "SRC_PORNHUB_SITE": "https://www.pornhub.com",
+  "SRC_XVIDEOS_SEARCH": "https://www.xvideos.com/",
+  "SRC_XVIDEOS_SITE": "https://www.xvideos.com",
+}
+# overlay secrets / overrides（不进 git）
+sec = dir_ / ".env.secrets"
+if sec.exists():
+  for line in sec.read_text(encoding="utf-8").splitlines():
+    line = line.strip()
+    if not line or line.startswith("#") or "=" not in line:
+      continue
+    k, _, v = line.partition("=")
+    vars_[k.strip()] = v.strip().strip('"').strip("'")
+# also allow process env override
+for k in list(vars_.keys()) + ["HUMANITY_EMAIL", "HUMANITY_PASSWORD"]:
+  if os.environ.get(k):
+    vars_[k] = os.environ[k]
+if "HUMANITY_EMAIL" not in vars_ or "HUMANITY_PASSWORD" not in vars_:
+  raise SystemExit("missing HUMANITY_EMAIL / HUMANITY_PASSWORD — put them in lambda/HApi/.env.secrets")
+print(json.dumps({"Variables": vars_}))
 PY
 )"
 
@@ -132,7 +180,7 @@ if ! aws lambda get-function-url-config --function-name "$FUNC" --region "$REGIO
     --cors '{
       "AllowOrigins":["*"],
       "AllowMethods":["GET","POST"],
-      "AllowHeaders":["content-type"],
+      "AllowHeaders":["content-type","authorization"],
       "MaxAge":60
     }' \
     --region "$REGION" >/dev/null
@@ -150,7 +198,7 @@ else
     --cors '{
       "AllowOrigins":["*"],
       "AllowMethods":["GET","POST"],
-      "AllowHeaders":["content-type"],
+      "AllowHeaders":["content-type","authorization"],
       "MaxAge":60
     }' \
     --region "$REGION" >/dev/null || true

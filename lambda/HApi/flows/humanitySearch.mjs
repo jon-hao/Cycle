@@ -1,10 +1,17 @@
 /**
- * Humanity 聚合搜索：eporner（官方 API）+ pornhub / xvideos（HTML 尽力解析）。
- * 需登录。source = eporner | pornhub | xvideos | all
+ * Humanity 聚合搜索。站点基址全部来自 Lambda Env（SRC_*）。
  */
 
 import { fetchJson, fetchText } from "../lib/http.mjs";
 import { requireHumanitySession } from "./humanityAuth.mjs";
+import {
+  srcEpornerSearch,
+  srcEpornerSite,
+  srcPornhubSearch,
+  srcPornhubSite,
+  srcXvideosSearch,
+  srcXvideosSite,
+} from "../lib/sources.mjs";
 
 const UA = {
   "user-agent":
@@ -23,9 +30,19 @@ function clean(s) {
     .trim();
 }
 
+function joinUrl(base, path) {
+  const b = String(base || "").replace(/\/$/, "");
+  if (!path) return b;
+  if (/^https?:/i.test(path)) return path;
+  return b + (path.startsWith("/") ? path : "/" + path);
+}
+
 async function searchEporner(q, page) {
+  const searchBase = srcEpornerSearch();
+  const site = srcEpornerSite();
   const url =
-    "https://www.eporner.com/api/v2/video/search/?" +
+    searchBase +
+    (searchBase.includes("?") ? "&" : "?") +
     new URLSearchParams({
       query: q,
       per_page: "24",
@@ -36,12 +53,17 @@ async function searchEporner(q, page) {
       lq: "0",
       format: "json",
     }).toString();
-  const d = await fetchJson(url, { timeout: 15000, headers: { ...UA, accept: "application/json" } });
+  const d = await fetchJson(url, {
+    timeout: 15000,
+    headers: { ...UA, accept: "application/json" },
+  });
   const rows = (d && d.videos) || [];
   return rows.map((v) => {
     const id = String(v.id || v.idh || "");
-    const pageUrl = v.url || (id ? "https://www.eporner.com/video-" + id + "/" : null);
-    const thumb = v.default_thumb && v.default_thumb.src ? v.default_thumb.src : v.thumb || null;
+    const pageUrl =
+      v.url || (id ? joinUrl(site, "/video-" + id + "/") : null);
+    const thumb =
+      v.default_thumb && v.default_thumb.src ? v.default_thumb.src : v.thumb || null;
     let preview = null;
     if (Array.isArray(v.thumbs) && v.thumbs.length) {
       const last = v.thumbs[v.thumbs.length - 1];
@@ -54,7 +76,7 @@ async function searchEporner(q, page) {
       thumb,
       preview: preview || thumb,
       url: pageUrl,
-      embed: pageUrl ? pageUrl.replace(/\/?$/, "/") + "embed/" : null,
+      embed: pageUrl ? String(pageUrl).replace(/\/?$/, "/") + "embed/" : null,
       duration: v.length_sec || v.length_min || null,
       views: v.views || null,
     };
@@ -62,8 +84,11 @@ async function searchEporner(q, page) {
 }
 
 async function searchPornhub(q, page) {
+  const searchBase = srcPornhubSearch();
+  const site = srcPornhubSite();
   const url =
-    "https://www.pornhub.com/video/search?" +
+    searchBase +
+    (searchBase.includes("?") ? "&" : "?") +
     new URLSearchParams({
       search: q,
       page: String(page || 1),
@@ -73,7 +98,7 @@ async function searchPornhub(q, page) {
     headers: {
       ...UA,
       accept: "text/html",
-      referer: "https://www.pornhub.com/",
+      referer: site + "/",
     },
   });
   const out = [];
@@ -94,13 +119,12 @@ async function searchPornhub(q, page) {
       title,
       thumb,
       preview: preview || thumb,
-      url: "https://www.pornhub.com/view_video.php?viewkey=" + id,
-      embed: "https://www.pornhub.com/embed/" + id,
+      url: joinUrl(site, "/view_video.php?viewkey=" + id),
+      embed: joinUrl(site, "/embed/" + id),
       duration: null,
       views: null,
     });
   }
-  // 宽松回退：链到 view_video
   if (!out.length) {
     const loose =
       /href="(\/view_video\.php\?viewkey=([a-zA-Z0-9]+))"[^>]*>[\s\S]{0,400}?src="(https:\/\/[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"/gi;
@@ -114,8 +138,8 @@ async function searchPornhub(q, page) {
         title: "Pornhub " + id,
         thumb: clean(m[3]),
         preview: clean(m[3]),
-        url: "https://www.pornhub.com" + m[1],
-        embed: "https://www.pornhub.com/embed/" + id,
+        url: joinUrl(site, m[1]),
+        embed: joinUrl(site, "/embed/" + id),
         duration: null,
         views: null,
       });
@@ -125,8 +149,13 @@ async function searchPornhub(q, page) {
 }
 
 async function searchXvideos(q, page) {
+  const searchBase = srcXvideosSearch();
+  const site = srcXvideosSite();
+  const sep = searchBase.includes("?") ? "&" : "?";
   const url =
-    "https://www.xvideos.com/?k=" +
+    searchBase +
+    sep +
+    "k=" +
     encodeURIComponent(q) +
     "&p=" +
     String(Math.max(0, (page || 1) - 1));
@@ -135,12 +164,11 @@ async function searchXvideos(q, page) {
     headers: {
       ...UA,
       accept: "text/html",
-      referer: "https://www.xvideos.com/",
+      referer: site + "/",
     },
   });
   const out = [];
   const seen = new Set();
-  // 常见卡片：id="video_XXXX" + data-src thumb + preview
   const blockRe =
     /id="video_(\d+)"[\s\S]*?href="(\/video\.[^"]+\/[^"]+)"[\s\S]*?(?:data-src|src)="(https:\/\/[^"]+)"[\s\S]{0,600}?(?:data-previewvideo="([^"]*)")?[\s\S]{0,400}?title="([^"]*)"/gi;
   let m;
@@ -158,8 +186,8 @@ async function searchXvideos(q, page) {
       title,
       thumb,
       preview: preview || thumb,
-      url: "https://www.xvideos.com" + path,
-      embed: "https://www.xvideos.com/embedframe/" + id,
+      url: joinUrl(site, path),
+      embed: joinUrl(site, "/embedframe/" + id),
       duration: null,
       views: null,
     });

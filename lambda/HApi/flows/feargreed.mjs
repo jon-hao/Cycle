@@ -1,8 +1,9 @@
 import { fetchJson } from "../lib/http.mjs";
-
-const FG = "https://fearandgreedgraph.com/api/fear-greed";
-const CN_SNAP = "https://api.fusionintel.net/v1/public/feargreed/a_stock_macro/latest";
-const CN_STM = "https://stock-stm.asia/api/data?days=90";
+import {
+  srcFearGreed,
+  srcFearGreedCnSnap,
+  srcFearGreedCnStm,
+} from "../lib/sources.mjs";
 
 function labelFor(value) {
   if (value < 25) return "fgExtremeFear";
@@ -26,8 +27,8 @@ function stmScore(series, i) {
 
 async function buildCN() {
   const [snap, stm] = await Promise.all([
-    fetchJson(CN_SNAP, { timeout: 12000 }).catch(() => null),
-    fetchJson(CN_STM, { timeout: 12000 }).catch(() => null),
+    fetchJson(srcFearGreedCnSnap(), { timeout: 12000 }).catch(() => null),
+    fetchJson(srcFearGreedCnStm(), { timeout: 12000 }).catch(() => null),
   ]);
 
   const dates = (stm && stm.dates_iso) || [];
@@ -46,7 +47,6 @@ async function buildCN() {
     return { flow: "feargreed", country: "CN", value: null, history: null };
   }
 
-  // 用公开恐贪最新值覆盖最后一点，曲线仍来自短线情绪
   if (history.length) {
     history = history.slice();
     history[history.length - 1] = {
@@ -79,7 +79,7 @@ export async function handleFearGreed(payload) {
   const country = String(payload.country || "US").toUpperCase();
   if (country === "CN") return buildCN();
 
-  const d = await fetchJson(FG, { timeout: 15000 });
+  const d = await fetchJson(srcFearGreed(), { timeout: 15000 });
   if (!d || !Array.isArray(d.values) || !d.values.length) {
     return { flow: "feargreed", country: "US", value: null, history: null };
   }

@@ -4,6 +4,11 @@
  */
 
 import { resolveJin10Auth, clearJin10AuthMemo } from "../lib/jin10Auth.mjs";
+import {
+  srcJin10DetailBase,
+  srcJin10FlashApi,
+  srcJin10Site,
+} from "../lib/sources.mjs";
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
@@ -114,7 +119,7 @@ export function mapFlashes(rows) {
     const id = String(row.item_id || flash.id || title);
     const originLink =
       body.source_link && /^https?:/i.test(body.source_link) ? body.source_link : null;
-    const jin10Link = "https://flash.jin10.com/detail/" + id;
+    const jin10Link = srcJin10DetailBase().replace(/\/$/, "") + "/" + id;
     const text = title + " " + content;
     const geo = guessNewsCountry(text);
     out.push({
@@ -187,12 +192,13 @@ async function enrichWithDetails(items) {
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), 4500);
       try {
-        const res = await fetch(item.jin10Link || "https://flash.jin10.com/detail/" + item.id, {
+        const detailBase = srcJin10DetailBase().replace(/\/$/, "");
+        const res = await fetch(item.jin10Link || detailBase + "/" + item.id, {
           signal: ctrl.signal,
           headers: {
             accept: "text/html",
             "user-agent": UA,
-            referer: "https://flash.jin10.com/",
+            referer: detailBase + "/",
           },
         });
         if (!res.ok) continue;
@@ -253,7 +259,7 @@ export function mapFlashApiList(rows) {
       summary: content,
       content,
       time: toISO(item.time),
-      link: data.link || "https://www.jin10.com/flash",
+      link: data.link || srcJin10Site().replace(/\/$/, "") + "/flash",
       important: true,
       countryGuess: geo.country,
       countryConfidence: geo.confidence,
@@ -301,15 +307,15 @@ async function fetchFlashApiFallback() {
   const timer = setTimeout(() => ctrl.abort(), 10000);
   try {
     const res = await fetch(
-      "https://flash-api.jin10.com/get_flash_list?channel=-8200&vip=1",
+      srcJin10FlashApi(),
       {
         signal: ctrl.signal,
         headers: {
-          "x-app-id": "bVBF4FyRTn5NJF5n",
-          "x-version": "1.0.0",
+          "x-app-id": process.env.SRC_JIN10_FLASH_APP_ID || "",
+          "x-version": process.env.SRC_JIN10_FLASH_VERSION || "1.0.0",
           accept: "application/json",
-          referer: "https://www.jin10.com/",
-          origin: "https://www.jin10.com",
+          referer: srcJin10Site().replace(/\/$/, "") + "/",
+          origin: srcJin10Site(),
           "user-agent":
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         },
@@ -321,7 +327,8 @@ async function fetchFlashApiFallback() {
     if (!items.length) throw new Error("flash-api empty");
     // flash-api 条目补上 jin10Link，便于同请求内拉详情/源头
     items.forEach((it) => {
-      if (!it.jin10Link) it.jin10Link = "https://flash.jin10.com/detail/" + it.id;
+      if (!it.jin10Link)
+        it.jin10Link = srcJin10DetailBase().replace(/\/$/, "") + "/" + it.id;
       if (!it.link) it.link = it.jin10Link;
     });
     const enriched = await enrichWithDetails(items);

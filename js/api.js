@@ -3,16 +3,7 @@
  * 优先 JSONP（无 CORS）；否则 fetch。失败一律 null / 缺失，禁止静态假数据。
  */
 window.CycleAPI = (function () {
-  const MR = "https://www.macroradar.io/api/v1";
-  const FG = "https://fearandgreedgraph.com/api/fear-greed";
-  const FC = "https://www.financecalendar.com/wp-json/fc/v1";
-  const PA = "https://pipatlas.com/api/calendar";
-  const WB = "https://api.worldbank.org/v2";
-  const CD = "https://chinadata.live/api/v2";
-  const EM = "https://datacenter-web.eastmoney.com/api/data/v1/get";
-  // 金十 RSS 直连 CORS 非法；经 rss2json JSONP 转发
-  const JIN10_RSS = "https://rsshub.rssforever.com/jin10/important";
-  const RSS2JSON = "https://api.rss2json.com/v1/api.json?rss_url=";
+  // 第三方数据源只存在 Lambda Env；浏览器只打 HApi。
 
   let jsonpSeq = 0;
 
@@ -367,56 +358,33 @@ window.CycleAPI = (function () {
     };
   }
 
+  function requireHapi() {
+    if (!cycleApiBase()) throw new Error("HApi apiBase required (sources live in Lambda Env)");
+  }
+
   async function fetchMacro(country) {
-    if (cycleApiBase()) {
-      const code = country === "CN" ? "CN" : "US";
-      const d = await hapi("macro", { country: code }, { timeout: 55000 });
-      if (d && d.country) return d;
-    }
-    if (country === "CN") return fetchCN();
-    if (country === "GLOBAL") return fetchGlobal();
-    return fetchUS();
+    requireHapi();
+    const code = country === "CN" ? "CN" : "US";
+    const d = await hapi("macro", { country: code }, { timeout: 55000 });
+    if (d && d.country) return d;
+    throw new Error("macro empty");
   }
 
   async function fetchFearGreed(country) {
-    if (cycleApiBase()) {
-      const code = country === "CN" ? "CN" : "US";
-      const d = await hapi("feargreed", { country: code }, { timeout: 20000 });
-      if (d && d.value != null) {
-        return {
-          value: d.value,
-          labelKey: d.labelKey,
-          label: d.labelText || window.t(d.labelKey || "fgFear"),
-          history: d.history,
-          asOf: d.asOf || null,
-          kind: d.kind || null,
-        };
-      }
-      if (code === "CN") return null;
+    requireHapi();
+    const code = country === "CN" ? "CN" : "US";
+    const d = await hapi("feargreed", { country: code }, { timeout: 20000 });
+    if (d && d.value != null) {
+      return {
+        value: d.value,
+        labelKey: d.labelKey,
+        label: d.labelText || window.t(d.labelKey || "fgFear"),
+        history: d.history,
+        asOf: d.asOf || null,
+        kind: d.kind || null,
+      };
     }
-    if (country === "CN") return null;
-    const d = await getJSON(FG);
-    if (!d || !Array.isArray(d.values) || !d.values.length) return null;
-    const dates = d.dates || [];
-    const values = d.values;
-    const history = dates.map((day, i) => ({
-      d: String(day).slice(0, 10),
-      v: Number(values[i]),
-    }));
-    const value = Number(values[values.length - 1]);
-    // 四段：极度恐慌 / 恐慌 / 贪婪 / 极度贪婪
-    let labelKey = "fgFear";
-    if (value < 25) labelKey = "fgExtremeFear";
-    else if (value < 50) labelKey = "fgFear";
-    else if (value < 75) labelKey = "fgGreed";
-    else labelKey = "fgExtremeGreed";
-    return {
-      value,
-      labelKey,
-      label: window.t(labelKey),
-      history,
-      asOf: d.asOf || null,
-    };
+    return null;
   }
 
   /** 规则国家判断（与 HApi news.guessNewsCountry 对齐） */
@@ -497,38 +465,38 @@ window.CycleAPI = (function () {
     const feeds = [JIN10_RSS];
     if (country === "CN") {
       feeds.push(
-        "https://news.google.com/rss/search?q=" +
+        "about:blank" +
           encodeURIComponent("中国经济 OR 央行 OR LPR OR 人民币 OR 美联储 when:3d") +
           "&hl=zh-CN&gl=CN&ceid=CN:zh-Hans"
       );
       feeds.push(
-        "https://news.google.com/rss/search?q=" +
+        "about:blank" +
           encodeURIComponent("PBOC OR China CPI OR yuan when:3d") +
           "&hl=en-US&gl=US&ceid=US:en"
       );
     } else if (country === "US") {
       feeds.push(
-        "https://news.google.com/rss/search?q=" +
+        "about:blank" +
           encodeURIComponent(
             "Federal Reserve OR FOMC OR US inflation OR nonfarm OR Treasury when:3d"
           ) +
           "&hl=en-US&gl=US&ceid=US:en"
       );
       feeds.push(
-        "https://news.google.com/rss/search?q=" +
+        "about:blank" +
           encodeURIComponent("forex market OR dollar OR Fed speakers when:3d") +
           "&hl=en-US&gl=US&ceid=US:en"
       );
     } else {
       feeds.push(
-        "https://news.google.com/rss/search?q=" +
+        "about:blank" +
           encodeURIComponent(
             "central bank OR inflation OR forex OR Federal Reserve OR ECB when:3d"
           ) +
           "&hl=en-US&gl=US&ceid=US:en"
       );
       feeds.push(
-        "https://news.google.com/rss/search?q=" +
+        "about:blank" +
           encodeURIComponent("全球经济 OR 央行 OR 通胀 when:3d") +
           "&hl=zh-CN&gl=US&ceid=US:zh-Hans"
       );
@@ -666,34 +634,12 @@ window.CycleAPI = (function () {
   }
 
   async function fetchImportantNews(country) {
-    // 已配置 Function URL 时只用金十「重要事件」专题；否则回退 RSS
-    if (cycleApiBase()) {
-      const proxied = await fetchNewsProxy();
-      if (!proxied || !proxied.length) {
-        throw new Error("news empty");
-      }
-      const ranked = proxied
-        .slice()
-        .sort((a, b) => (a.rank || 0) - (b.rank || 0));
-      const tagged = refineNewsCountries(ranked);
-      return filterNewsByCountry(tagged, country).slice(0, 60);
-    }
-    const feeds = newsFeedsFor(country || "GLOBAL");
-    const batches = await Promise.all(feeds.map((f) => fetchRssViaJson(f)));
-    const seen = new Set();
-    let items = [];
-    batches.flat().forEach((n) => {
-      const key = (n.title || "").slice(0, 80);
-      if (!key || seen.has(key)) return;
-      if (isDigestNoise(n.title, n.summary || n.content)) return;
-      seen.add(key);
-      items.push(n);
-    });
-    items.sort((a, b) => new Date(b.time) - new Date(a.time));
-    if (!items.length) return null;
-    items = refineNewsCountries(items);
-    items = filterNewsByCountry(items, country);
-    return items.slice(0, 60);
+    requireHapi();
+    const proxied = await fetchNewsProxy();
+    if (!proxied || !proxied.length) throw new Error("news empty");
+    const ranked = proxied.slice().sort((a, b) => (a.rank || 0) - (b.rank || 0));
+    const tagged = refineNewsCountries(ranked);
+    return filterNewsByCountry(tagged, country).slice(0, 60);
   }
 
   function mapCalendarEvent(e, source) {
@@ -734,115 +680,17 @@ window.CycleAPI = (function () {
   }
 
   async function fetchCalendar(fromISO, toISO, country) {
+    requireHapi();
     const from = fromISO.slice(0, 10);
     const to = toISO.slice(0, 10);
-    if (cycleApiBase()) {
-      const code = country === "CN" ? "CN" : "US";
-      const d = await hapi(
-        "calendar",
-        { from, to, country: code },
-        { timeout: 55000 }
-      );
-      if (d && Array.isArray(d.events)) {
-        return d.events;
-      }
-      throw new Error("calendar empty");
-    }
-    const [fc, pa, holidays] = await Promise.all([
-      getJSON(`${FC}/calendar?from=${from}&to=${to}&impact=high&limit=200`),
-      getJSON(PA),
-      country === "US"
-        ? getJSON(`${FC}/holidays?year=${from.slice(0, 4)}`)
-        : Promise.resolve(null),
-    ]);
-
-    const out = [];
-    const fcEvents = Array.isArray(fc)
-      ? fc
-      : (fc && (fc.events || fc.data)) || [];
-    fcEvents.forEach((e) => {
-      const m = mapCalendarEvent(e, "financecalendar");
-      if (m) out.push(m);
-    });
-
-    const paEvents = (pa && pa.events) || [];
-    paEvents.forEach((e) => {
-      const m = mapCalendarEvent(e, "pipatlas");
-      if (!m) return;
-      const t = new Date(m.datetime).getTime();
-      if (t >= new Date(from).getTime() && t <= new Date(to).getTime() + 86400000)
-        out.push(m);
-    });
-
-    if (holidays && Array.isArray(holidays.holidays || holidays)) {
-      (holidays.holidays || holidays).forEach((h, i) => {
-        const d = h.date || h.d;
-        if (!d) return;
-        if (d < from || d > to) return;
-        const name = h.name || h.title || "";
-        out.push({
-          id: "hol-" + d + "-" + i,
-          country: "US",
-          datetime: d + "T13:00:00",
-          title: name || "US Equity Market Holiday",
-          holidayName: name,
-          market: "US",
-          forecast: "—",
-          actual: "—",
-          previous: "—",
-          importance: 1,
-          tag: "holiday",
-          source: "financecalendar",
-        });
-      });
-    }
-
-    // 去重：同日+同国家+同指标口径，优先 FinanceCalendar，且偏好字段更全的一条
-    function score(e) {
-      let s = 0;
-      if (e.source === "financecalendar") s += 20;
-      if (e.source === "pipatlas") s += 5;
-      if (e.forecast != null && e.forecast !== "" && e.forecast !== "—") s += 8;
-      if (e.actual != null && e.actual !== "" && e.actual !== "—") s += 10;
-      if (e.previous != null && e.previous !== "" && e.previous !== "—") s += 3;
-      if (e.datetime && String(e.datetime).includes("T")) s += 2;
-      return s;
-    }
-    function dayKey(e) {
-      const d = e.datetime ? String(e.datetime).slice(0, 10) : "";
-      if (e.tag === "holiday") {
-        return (
-          d +
-          "|hol|" +
-          (e.country || "") +
-          "|" +
-          String(e.holidayName || e.title || "")
-            .toLowerCase()
-            .slice(0, 48)
-        );
-      }
-      const kind =
-        (window.CycleCalI18n && window.CycleCalI18n.dedupeKey(e.title)) ||
-        String(e.title || "").toLowerCase();
-      return d + "|" + (e.country || "") + "|" + kind + "|" + (e.tag || "");
-    }
-    const best = new Map();
-    out.forEach((e) => {
-      const key = dayKey(e);
-      const prev = best.get(key);
-      if (!prev || score(e) > score(prev)) best.set(key, e);
-    });
-    const uniq = [...best.values()];
-
-    let filtered = uniq;
-    if (country && country !== "GLOBAL") {
-      filtered = uniq.filter(
-        (e) => e.country === country || e.tag === "holiday" || e.tag === "witching"
-      );
-    }
-
-    filtered.sort((a, b) => new Date(a.datetime) - new Date(b.datetime));
-    return filtered.length ? filtered : null;
+    const code = country === "CN" ? "CN" : "US";
+    const d = await hapi(
+      "calendar",
+      { from, to, country: code },
+      { timeout: 55000 }
+    );
+    if (d && Array.isArray(d.events)) return d.events;
+    throw new Error("calendar empty");
   }
 
   /** 四巫日：3/6/9/12 月第三个周五 */

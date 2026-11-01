@@ -4,10 +4,21 @@
  */
 
 import { fetchJson } from "../lib/http.mjs";
+import {
+  srcFinanceCalendar,
+  srcPipAtlas,
+  srcForexFactory,
+} from "../lib/sources.mjs";
 
-const FC = "https://www.financecalendar.com/wp-json/fc/v1";
-const PA = "https://pipatlas.com/api/calendar";
-const FF = "https://nfs.faireconomy.media/ff_calendar_thisweek.json";
+function FC() {
+  return srcFinanceCalendar();
+}
+function PA() {
+  return srcPipAtlas();
+}
+function FF() {
+  return srcForexFactory();
+}
 
 /** 把各源时间规范成 UTC ISO，供前端按用户本机时区显示 */
 function toUtcIso(raw, countryHint) {
@@ -198,19 +209,19 @@ export async function handleCalendar(payload) {
 
   const year = from.slice(0, 4);
   const [fc, pa, holidays, ff] = await Promise.all([
-    fetchJson(`${FC}/calendar?from=${from}&to=${to}&impact=high&limit=200`, {
+    fetchJson(`${FC()}/calendar?from=${from}&to=${to}&impact=high&limit=200`, {
       timeout: 18000,
     }).catch(() => null),
-    fetchJson(PA, { timeout: 18000 }).catch(() => null),
+    fetchJson(PA(), { timeout: 18000 }).catch(() => null),
     country === "US" || country === "CN"
-      ? fetchJson(`${FC}/holidays?year=${year}`, { timeout: 15000 }).catch(() => null)
+      ? fetchJson(`${FC()}/holidays?year=${year}`, { timeout: 15000 }).catch(() => null)
       : Promise.resolve(null),
-    fetchJson(FF, { timeout: 12000 }).catch(() => null),
+    fetchJson(FF(), { timeout: 12000 }).catch(() => null),
   ]);
 
   // also try medium impact from FC
   const fcMed = await fetchJson(
-    `${FC}/calendar?from=${from}&to=${to}&impact=medium&limit=200`,
+    `${FC()}/calendar?from=${from}&to=${to}&impact=medium&limit=200`,
     { timeout: 18000 }
   ).catch(() => null);
 

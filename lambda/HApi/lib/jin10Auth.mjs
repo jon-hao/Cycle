@@ -1,17 +1,15 @@
 /**
  * 从金十「重要事件」专题页解析最新鉴权头 / API 基址。
- * 页面把配置写在 window.__JIN10_TOPIC_ENV__，appId 在打包 JS 字符串表里。
+ * 专题页 / 兜底基址全部来自 Lambda Env。
  */
 
-const TOPIC_ORIGIN = "https://topic17z2k407.jin10.com";
-const TOPIC_PAGE = `${TOPIC_ORIGIN}/topic/jin10_important_news.html`;
-
-const FALLBACK = {
-  appId: "EzF2s2HxxU0U5bYa",
-  version: "1.0.0",
-  baseUrl:
-    "https://1b8d6028d99849668a6d8755c79e650f.z3c.jin10.com/top/flashsByTime",
-};
+import {
+  srcJin10TopicOrigin,
+  srcJin10TopicPage,
+  srcJin10FlashBase,
+  srcJin10AppIdFallback,
+  srcJin10VersionFallback,
+} from "./sources.mjs";
 
 const UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
@@ -20,10 +18,21 @@ const UA =
 let memo = null;
 const MEMO_MS = 3 * 60 * 1000;
 
+function fallbackAuthParts() {
+  return {
+    appId: srcJin10AppIdFallback(),
+    version: srcJin10VersionFallback(),
+    baseUrl: srcJin10FlashBase(),
+  };
+}
+
 function buildAuth({ appId, version, baseUrl }) {
-  const id = appId || FALLBACK.appId;
-  const ver = version || FALLBACK.version;
-  const base = baseUrl || FALLBACK.baseUrl;
+  const fb = fallbackAuthParts();
+  const id = appId || fb.appId;
+  const ver = version || fb.version;
+  const base = baseUrl || fb.baseUrl;
+  const TOPIC_ORIGIN = srcJin10TopicOrigin();
+  const TOPIC_PAGE = srcJin10TopicPage();
   return {
     appId: id,
     version: ver,
@@ -49,7 +58,7 @@ async function fetchText(url, timeoutMs = 10000) {
       headers: {
         accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "user-agent": UA,
-        referer: TOPIC_ORIGIN + "/",
+        referer: srcJin10TopicOrigin() + "/",
       },
     });
     if (!res.ok) throw new Error("fetch " + res.status + " " + url);
@@ -64,20 +73,19 @@ export function parseTopicEnv(html) {
   const full = String(html || "").match(
     /function _0x2a7b[\s\S]*?window\['__JIN10_TOPIC_ENV__'\]=\{[\s\S]*?\}\);/
   );
+  const fb = fallbackAuthParts();
   if (!full) {
-    // 明文兜底
     const ver = (html.match(/importantNewsXVersion['"]?\s*:\s*['"]([^'"]+)['"]/) || [])[1];
     const base = (html.match(/importantNewsApiBaseUrl['"]?\s*:\s*['"](https?:[^'"]+)['"]/) || [])[1];
     if (ver || base) {
       return {
-        importantNewsXVersion: ver || FALLBACK.version,
-        importantNewsApiBaseUrl: base || FALLBACK.baseUrl,
+        importantNewsXVersion: ver || fb.version,
+        importantNewsApiBaseUrl: base || fb.baseUrl,
       };
     }
     return null;
   }
   const sandbox = {};
-  // 仅执行金十专题页片段；不接触用户输入
   new Function("window", full[0])(sandbox);
   return sandbox.__JIN10_TOPIC_ENV__ || null;
 }
@@ -145,10 +153,14 @@ export async function resolveJin10Auth(opts = {}) {
     return memo.auth;
   }
 
+  const TOPIC_ORIGIN = srcJin10TopicOrigin();
+  const TOPIC_PAGE = srcJin10TopicPage();
+  const fb = fallbackAuthParts();
+
   try {
     const html = await fetchText(TOPIC_PAGE, 12000);
     const env = parseTopicEnv(html) || {};
-    let appId = FALLBACK.appId;
+    let appId = fb.appId;
     const jsName = newsJsName(html);
     if (jsName) {
       try {
@@ -161,14 +173,13 @@ export async function resolveJin10Auth(opts = {}) {
 
     const auth = buildAuth({
       appId,
-      version: env.importantNewsXVersion || FALLBACK.version,
-      baseUrl: env.importantNewsApiBaseUrl || FALLBACK.baseUrl,
+      version: env.importantNewsXVersion || fb.version,
+      baseUrl: env.importantNewsApiBaseUrl || fb.baseUrl,
     });
     memo = { at: Date.now(), auth };
     return auth;
   } catch {
-    const auth = buildAuth(FALLBACK);
-    // 解析失败也短暂记住，避免雪崩打专题页
+    const auth = buildAuth(fb);
     memo = { at: Date.now(), auth };
     return auth;
   }

@@ -4,15 +4,29 @@
  */
 
 import { fetchJson, last, toPoints } from "../lib/http.mjs";
+import {
+  srcMacroRadar,
+  srcChinaData,
+  srcEastmoney,
+  srcFinanceCalendar,
+} from "../lib/sources.mjs";
 
-const MR = "https://www.macroradar.io/api/v1";
-const CD = "https://chinadata.live/api/v2";
-const EM = "https://datacenter-web.eastmoney.com/api/data/v1/get";
-const FC = "https://www.financecalendar.com/wp-json/fc/v1";
+function MR() {
+  return srcMacroRadar();
+}
+function CD() {
+  return srcChinaData();
+}
+function EM() {
+  return srcEastmoney();
+}
+function FC() {
+  return srcFinanceCalendar();
+}
 
 async function macroRadarSeries(id, limit) {
   const d = await fetchJson(
-    `${MR}/series/${encodeURIComponent(id)}?limit=${limit || 48}`,
+    `${MR()}/series/${encodeURIComponent(id)}?limit=${limit || 48}`,
     { timeout: 20000 }
   );
   if (!d || !d.data) return null;
@@ -20,7 +34,7 @@ async function macroRadarSeries(id, limit) {
 }
 
 async function macroRadarCompute(expr, limit) {
-  const d = await fetchJson(`${MR}/compute?expr=${encodeURIComponent(expr)}`, {
+  const d = await fetchJson(`${MR()}/compute?expr=${encodeURIComponent(expr)}`, {
     timeout: 20000,
   });
   if (!d || !d.data) return null;
@@ -30,7 +44,7 @@ async function macroRadarCompute(expr, limit) {
 }
 
 async function chinaDataSeries(slug, opts = {}) {
-  const d = await fetchJson(`${CD}/data/${encodeURIComponent(slug)}`, {
+  const d = await fetchJson(`${CD()}/data/${encodeURIComponent(slug)}`, {
     timeout: 20000,
   });
   if (!d || !d.success || !d.data || !Array.isArray(d.data.data)) return null;
@@ -70,7 +84,7 @@ function yoyFromSameMonth(pts) {
 
 async function fetchChinaLPR(limit = 500) {
   const url =
-    `${EM}?reportName=RPTA_WEB_RATE&columns=ALL` +
+    `${EM()}?reportName=RPTA_WEB_RATE&columns=ALL` +
     `&sortColumns=TRADE_DATE&sortTypes=-1&pageNumber=1&pageSize=${limit}` +
     `&token=894050c76af8597a853f5b408b759f5d&source=WEB&client=WEB`;
   const d = await fetchJson(url, { timeout: 20000 });
@@ -122,7 +136,7 @@ async function buildUS() {
     macroRadarCompute("HOUST.yoy", 480).catch(() => null),
     macroRadarCompute("TOTALSL.yoy", 480).catch(() => null),
     macroRadarSeries("ICSA", 2100).catch(() => null),
-    fetchJson(`${FC}/next?series=fomc`, { timeout: 15000 }).catch(() => null),
+    fetchJson(`${FC()}/next?series=fomc`, { timeout: 15000 }).catch(() => null),
   ]);
   return {
     flow: "macro",
