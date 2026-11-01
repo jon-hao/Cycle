@@ -223,39 +223,53 @@ export async function browseMissav(page) {
   return parseMissavCards(html, site);
 }
 
+function missavDictsFromHtml(html) {
+  const out = [];
+  const re = /'(m3u8\|[^']+)'\.split\('\|'\)/g;
+  let m;
+  while ((m = re.exec(html))) out.push(m[1].split("|"));
+  return out;
+}
+
+function missavUuidFromWords(words) {
+  const hex = (words || []).filter((w) => /^[0-9a-f]+$/i.test(w));
+  const a = hex.find((w) => w.length === 8);
+  const fours = hex.filter((w) => w.length === 4);
+  const e = hex.find((w) => w.length === 12);
+  if (a && fours.length >= 3 && e) {
+    return (
+      a +
+      "-" +
+      fours[2] +
+      "-" +
+      fours[1] +
+      "-" +
+      fours[0] +
+      "-" +
+      e
+    ).toLowerCase();
+  }
+  return "";
+}
+
 function missavUuidFromHtml(html) {
-  const packed = html.match(/;b='([^']+)';',\d+,\d+,'([^']+)'\.split\('\|'\)/);
-  if (packed) {
-    const words = packed[2].split("|");
-    const hex = words.filter((w) => /^[0-9a-f]+$/i.test(w));
-    const a = hex.find((w) => w.length === 8);
-    const fours = hex.filter((w) => w.length === 4);
-    const e = hex.find((w) => w.length === 12);
-    if (a && fours.length >= 3 && e) {
-      return (
-        a +
-        "-" +
-        fours[2] +
-        "-" +
-        fours[1] +
-        "-" +
-        fours[0] +
-        "-" +
-        e
-      ).toLowerCase();
-    }
+  for (const words of missavDictsFromHtml(html)) {
+    const uid = missavUuidFromWords(words);
+    if (uid) return uid;
   }
   const seek = html.match(/surrit\.com\/([0-9a-f-]{36})/i);
   return seek ? seek[1].toLowerCase() : "";
 }
 
 function missavQualitiesFromHtml(html) {
-  const packed = html.match(/;b='([^']+)';',\d+,\d+,'([^']+)'\.split\('\|'\)/);
-  const fromDict = packed
-    ? packed[2].split("|").filter((w) => /^\d{3,4}p$/i.test(w))
-    : [];
+  const fromDict = [];
+  for (const words of missavDictsFromHtml(html)) {
+    for (const w of words) {
+      if (/^\d{3,4}p$/i.test(w)) fromDict.push(w.toLowerCase());
+    }
+  }
   return [
-    ...new Set([...fromDict.map((q) => q.toLowerCase()), "1080p", "720p", "480p", "360p"]),
+    ...new Set([...fromDict, "1080p", "720p", "480p", "360p"]),
   ];
 }
 
@@ -272,8 +286,12 @@ export async function resolveMissav(page) {
   const quals = missavQualitiesFromHtml(html)
     .map((q) => ({ q, h: qualityHeight(q) }))
     .sort((a, b) => b.h - a.h);
+  // 优先探测；机房 IP 常拦 surrit 时仍把最高档 URL 交给浏览器播放
+  let fallback = null;
   for (const { q, h } of quals) {
     const url = "https://surrit.com/" + uuid + "/" + q + "/video.m3u8";
+    const label = h >= 2160 ? "4K" : h + "p";
+    if (!fallback) fallback = { stream: url, hls: url, quality: label, embed: null };
     try {
       const body = await fetchText(url, {
         timeout: 8000,
@@ -288,13 +306,13 @@ export async function resolveMissav(page) {
         return {
           stream: url,
           hls: url,
-          quality: h >= 2160 ? "4K" : h + "p",
+          quality: label,
           embed: null,
         };
       }
     } catch (_) {}
   }
-  return { stream: null, hls: null, quality: null, embed: null };
+  return fallback || { stream: null, hls: null, quality: null, embed: null };
 }
 
 export function parseMissavRelated(html, site, selfCode) {
@@ -523,36 +541,40 @@ function parseHanimeCards(html, site) {
   const out = [];
   const seen = new Set();
   const re =
-    /class="video-item-container"[^>]*title="([^"]*)"[\s\S]*?href="((?:https?:\/\/[^"]+)?\/watch\?v=(\d+))"[\s\S]{0,900}?src="(https:\/\/[^"]+)"[\s\S]{0,500}?class="duration">\s*([^<]+)/gi;
+    /(?:title="([^"]*)"[^>]*class="video-item-container"|class="video-item-container"[^>]*title="([^"]*)")[\s\S]{0,1200}?href="((?:https?:\/\/[^"]+)?\/watch\?v=(\d+))"[\s\S]{0,1000}?(?:src|data-src)="(https:\/\/[^"]+)"[\s\S]{0,600}?class="duration">\s*([^<]+)/gi;
   let m;
   while ((m = re.exec(html)) && out.length < PAGE_SIZE) {
-    const id = m[3];
+    const id = m[4];
     if (!id || seen.has(id)) continue;
     seen.add(id);
+    const title = clean(m[1] || m[2] || "");
     out.push({
       id: "hanime1:" + id,
       source: "hanime1",
-      title: clean(m[1] || "Hanime " + id),
-      thumb: normalizeThumb(m[4]),
-      preview: normalizeThumb(m[4]),
+      title: title || "Hanime " + id,
+      thumb: normalizeThumb(m[5]),
+      preview: normalizeThumb(m[5]),
       url: joinUrl(site, "/watch?v=" + id),
       embed: null,
-      duration: formatDuration(m[5]),
+      duration: formatDuration(m[6]),
       quality: null,
     });
   }
   if (out.length) return out;
-  // fallback looser order
   const loose =
-    /href="((?:https?:\/\/[^"]+)?\/watch\?v=(\d+))"[\s\S]{0,700}?src="(https:\/\/[^"]+thumbnail[^"]+)"[\s\S]{0,400}?class="duration">\s*([^<]+)/gi;
+    /href="((?:https?:\/\/[^"]+)?\/watch\?v=(\d+))"[\s\S]{0,900}?(?:src|data-src)="(https:\/\/[^"]*thumbnail[^"]+)"[\s\S]{0,500}?class="duration">\s*([^<]+)/gi;
   while ((m = loose.exec(html)) && out.length < PAGE_SIZE) {
     const id = m[2];
     if (!id || seen.has(id)) continue;
     seen.add(id);
+    const around = html.slice(Math.max(0, m.index - 300), m.index + 200);
+    const title = clean(
+      (around.match(/title="([^"]+)"/) || [])[1] || "Hanime " + id
+    );
     out.push({
       id: "hanime1:" + id,
       source: "hanime1",
-      title: "Hanime " + id,
+      title,
       thumb: normalizeThumb(m[3]),
       preview: normalizeThumb(m[3]),
       url: joinUrl(site, "/watch?v=" + id),
@@ -601,17 +623,21 @@ export async function resolveHanime(page) {
   });
   const sources = [];
   const re =
-    /<source[^>]+src="(https:\/\/[^"]+\.mp4[^"]*)"[^>]*(?:size="(\d+)")?[^>]*>/gi;
+    /<source[^>]+src="(https:\/\/[^"]+\.mp4[^"]*)"[^>]*(?:size="(\d+)")?[^>]*>|<source[^>]*(?:size="(\d+)")[^>]*src="(https:\/\/[^"]+\.mp4[^"]*)"[^>]*>/gi;
   let m;
   while ((m = re.exec(html))) {
-    const url = m[1];
-    const size = Number(m[2]) || qualityHeight(url);
-    sources.push({ url, h: size });
+    const url = m[1] || m[4];
+    const size =
+      Number(m[2] || m[3]) ||
+      Number((url.match(/-(\d{3,4})p\.mp4/i) || [])[1]) ||
+      0;
+    if (url) sources.push({ url, h: size });
   }
   if (!sources.length) {
     for (const u of html.match(/https:\/\/[^"'\s]+\.mp4[^"'\s]*/gi) || []) {
       if (/thumbnail|image|\.jpg/i.test(u)) continue;
-      sources.push({ url: u, h: qualityHeight(u) });
+      const h = Number((u.match(/-(\d{3,4})p\.mp4/i) || [])[1]) || 0;
+      sources.push({ url: u, h });
     }
   }
   sources.sort((a, b) => b.h - a.h);
