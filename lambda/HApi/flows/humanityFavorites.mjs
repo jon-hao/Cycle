@@ -1,5 +1,7 @@
 /**
- * Humanity 收藏：DynamoDB pk=humanity#fav#<email> sk=<videoId>
+ * Humanity 收藏：
+ *  - 影片 pk=humanity#fav#<email> sk=<videoId>
+ *  - 演员 pk=humanity#actor#<email> sk=<normalizedName>
  */
 
 import { dbGet, dbPut, dbDelete, dbQueryPk } from "../lib/db.mjs";
@@ -12,6 +14,21 @@ import {
 
 function favPk(email) {
   return "humanity#fav#" + email;
+}
+
+function actorPk(email) {
+  return "humanity#actor#" + email;
+}
+
+function normalizeActorName(raw) {
+  return String(raw || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 80);
+}
+
+function actorSk(name) {
+  return normalizeActorName(name).toLowerCase();
 }
 
 function normalizeItem(raw) {
@@ -41,9 +58,13 @@ export async function handleHumanityFavorites(payload) {
 
   const action = String(payload.action || "list").toLowerCase();
   const pk = favPk(sess.email);
+  const apk = actorPk(sess.email);
 
   if (action === "list") {
-    const rows = await dbQueryPk(pk, { limit: 200 });
+    const [rows, actorRows] = await Promise.all([
+      dbQueryPk(pk, { limit: 200 }),
+      dbQueryPk(apk, { limit: 200 }),
+    ]);
     const items = rows
       .map((r) =>
         publicizeItem({
@@ -60,7 +81,21 @@ export async function handleHumanityFavorites(payload) {
         })
       )
       .sort((a, b) => String(b.savedAt || "").localeCompare(String(a.savedAt || "")));
-    return { flow: "hfav", ok: true, count: items.length, items };
+    const actors = actorRows
+      .map((r) => ({
+        id: r.sk,
+        name: r.name || r.sk,
+        savedAt: r.savedAt || null,
+      }))
+      .sort((a, b) => String(b.savedAt || "").localeCompare(String(a.savedAt || "")));
+    return {
+      flow: "hfav",
+      ok: true,
+      count: items.length,
+      actorCount: actors.length,
+      items,
+      actors,
+    };
   }
 
   if (action === "add") {
@@ -87,9 +122,15 @@ export async function handleHumanityFavorites(payload) {
     }
     const internalId = toInternalItemId(rawId);
     await dbDelete(pk, internalId);
-    // 兼容旧收藏键已是对外形态
     if (internalId !== rawId) await dbDelete(pk, rawId).catch(() => {});
-    return { flow: "hfav", ok: true, removed: publicizeItem({ id: internalId, source: internalId.split(":")[0] }).id };
+    return {
+      flow: "hfav",
+      ok: true,
+      removed: publicizeItem({
+        id: internalId,
+        source: internalId.split(":")[0],
+      }).id,
+    };
   }
 
   if (action === "has") {
@@ -102,6 +143,40 @@ export async function handleHumanityFavorites(payload) {
       (await dbGet(pk, internalId)) ||
       (internalId !== rawId ? await dbGet(pk, rawId) : null);
     return { flow: "hfav", ok: true, saved: !!row };
+  }
+
+  if (action === "addactor" || action === "add_actor") {
+    const name = normalizeActorName(payload.name || payload.actor || "");
+    if (!name) {
+      return { flow: "hfav", ok: false, __status: 400, error: "name required" };
+    }
+    const sk = actorSk(name);
+    await dbPut({
+      pk: apk,
+      sk,
+      name,
+      email: sess.email,
+      app: "humanity",
+      type: "actor",
+      savedAt: new Date().toISOString(),
+    });
+    return { flow: "hfav", ok: true, actor: { id: sk, name } };
+  }
+
+  if (
+    action === "removeactor" ||
+    action === "remove_actor" ||
+    action === "deleteactor"
+  ) {
+    const name = normalizeActorName(
+      payload.name || payload.actor || payload.id || ""
+    );
+    if (!name) {
+      return { flow: "hfav", ok: false, __status: 400, error: "name required" };
+    }
+    const sk = actorSk(name);
+    await dbDelete(apk, sk);
+    return { flow: "hfav", ok: true, removed: sk };
   }
 
   return { flow: "hfav", ok: false, __status: 400, error: "unknown action" };

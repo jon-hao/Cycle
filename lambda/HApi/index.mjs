@@ -4,7 +4,7 @@
  * 约定：
  *   GET/POST Function URL
  *   flow = news | macro | feargreed | calendar | search | quota | catalog | health
- *        | hauth | hsearch | hfav | hplay
+ *        | hauth | hsearch | hfav | hplay | hrelated
  *   app  = cycle | humanity（除 hauth 登录外，所有 flow 必须带有效会话）
  *
  * CORS 仅由 Function URL 配置注入。
@@ -20,6 +20,7 @@ import { handleHumanityAuth } from "./flows/humanityAuth.mjs";
 import { handleHumanitySearch } from "./flows/humanitySearch.mjs";
 import { handleHumanityFavorites } from "./flows/humanityFavorites.mjs";
 import { handleHumanityPlay } from "./flows/humanityPlay.mjs";
+import { handleHumanityRelated } from "./flows/humanityRelated.mjs";
 import { handleHumanityMeta } from "./flows/humanityMeta.mjs";
 import { withQuota, quotaStatus } from "./quota.mjs";
 import { normalizeApp, requireAppSession } from "./lib/appAuth.mjs";
@@ -39,6 +40,7 @@ const FLOWS = {
   hsearch: handleHumanitySearch,
   hfav: handleHumanityFavorites,
   hplay: handleHumanityPlay,
+  hrelated: handleHumanityRelated,
   hmeta: handleHumanityMeta,
 };
 
@@ -57,6 +59,7 @@ function json(statusCode, obj) {
         obj.flow === "hfav" ||
         obj.flow === "hsearch" ||
         obj.flow === "hplay" ||
+        obj.flow === "hrelated" ||
         obj.flow === "hmeta"));
   return {
     statusCode,
@@ -117,6 +120,7 @@ function inferApp(flow, payload) {
     flow === "hsearch" ||
     flow === "hfav" ||
     flow === "hplay" ||
+    flow === "hrelated" ||
     flow === "hmeta"
   ) {
     return "humanity";

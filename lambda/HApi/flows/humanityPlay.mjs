@@ -369,7 +369,13 @@ export async function handleHumanityPlay(payload) {
       if (page) resolved = await resolvePornhub(page);
       else resolved.embed = embedIn;
     } else if (source === "eporner" || /eporner/i.test(page + embedIn)) {
-      resolved = await resolveEporner(page, embedIn);
+      // Eporner 直链不稳定，一律走 embed
+      resolved = {
+        stream: null,
+        hls: null,
+        quality: null,
+        embed: embedIn || epEmbedFromPage(page),
+      };
     } else if (page) {
       resolved.embed =
         embedIn || xvEmbedFromPage(page) || phEmbedFromPage(page) || epEmbedFromPage(page);
