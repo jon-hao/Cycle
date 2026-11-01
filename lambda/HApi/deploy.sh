@@ -186,3 +186,20 @@ pathlib.Path(path).write_text(
 )
 print(url)
 PY
+
+# Humanity 同账号 HApi；若本机旁有仓库则同步 apiBase
+HUM_CFG="$(cd "$ROOT/.." && pwd)/Humanity/js/config.js"
+if [ -f "$HUM_CFG" ]; then
+  python3 - "$HUM_CFG" "$URL" <<'PY'
+import pathlib, sys
+path, url = sys.argv[1], sys.argv[2].rstrip("/")
+pathlib.Path(path).write_text(
+    "window.HumanityConfig = {\n"
+    f'  apiBase: "{url}",\n'
+    '  app: "humanity",\n'
+    "};\n",
+    encoding="utf-8",
+)
+print("wrote", path)
+PY
+fi

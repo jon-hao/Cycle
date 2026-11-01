@@ -68,6 +68,39 @@ export async function handleCatalog() {
         returns: "web search snippets for agents",
       },
       {
+        id: "hauth",
+        method: ["GET", "POST"],
+        params: {
+          app: "humanity",
+          action: "login|check|logout",
+          email: "string?",
+          password: "string?",
+          token: "string?",
+        },
+        returns: "Humanity single-user auth (DynamoDB session)",
+      },
+      {
+        id: "hsearch",
+        method: ["GET", "POST"],
+        params: {
+          app: "humanity",
+          q: "string",
+          source: "all|eporner|pornhub|xvideos",
+          token: "string",
+        },
+        returns: "aggregated adult search results",
+      },
+      {
+        id: "hfav",
+        method: ["GET", "POST"],
+        params: {
+          app: "humanity",
+          action: "list|add|remove|has",
+          token: "string",
+        },
+        returns: "Humanity favorites (DynamoDB, namespaced)",
+      },
+      {
         id: "quota",
         method: ["GET", "POST"],
         params: {},

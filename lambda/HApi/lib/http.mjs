@@ -6,6 +6,7 @@ export async function fetchJson(url, opts = {}) {
     const res = await fetch(url, {
       signal: ctrl.signal,
       headers: opts.headers || { accept: "application/json" },
+      redirect: "follow",
     });
     if (!res.ok) throw new Error(`HTTP ${res.status} ${url}`);
     return await res.json();
@@ -22,6 +23,7 @@ export async function fetchText(url, opts = {}) {
     const res = await fetch(url, {
       signal: ctrl.signal,
       headers: opts.headers || {},
+      redirect: "follow",
     });
     if (!res.ok) throw new Error(`HTTP ${res.status} ${url}`);
     return await res.text();

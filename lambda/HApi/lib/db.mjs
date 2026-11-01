@@ -8,6 +8,8 @@ import {
   DynamoDBDocumentClient,
   GetCommand,
   PutCommand,
+  DeleteCommand,
+  QueryCommand,
 } from "@aws-sdk/lib-dynamodb";
 
 const TABLE = process.env.HAPI_TABLE || "HApi";
@@ -36,4 +38,28 @@ export async function dbPut(item) {
       Item: item,
     })
   );
+}
+
+export async function dbDelete(pk, sk) {
+  await client.send(
+    new DeleteCommand({
+      TableName: TABLE,
+      Key: { pk, sk },
+    })
+  );
+}
+
+/** 同 pk 下列出全部 sk（分页最多约 1MB / 次） */
+export async function dbQueryPk(pk, opts) {
+  const limit = (opts && opts.limit) || 200;
+  const out = await client.send(
+    new QueryCommand({
+      TableName: TABLE,
+      KeyConditionExpression: "pk = :pk",
+      ExpressionAttributeValues: { ":pk": pk },
+      Limit: limit,
+      ScanIndexForward: false,
+    })
+  );
+  return out.Items || [];
 }

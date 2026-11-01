@@ -4,6 +4,7 @@
  * 约定：
  *   GET/POST Function URL
  *   flow   = news | macro | feargreed | calendar | search | quota | catalog | health
+ *          | hauth | hsearch | hfav   （Humanity，app=humanity）
  *   app    = 租户/命名空间（影响 DynamoDB 缓存键，默认 public）
  *
  * CORS 仅由 Function URL 配置注入。
@@ -15,6 +16,9 @@ import { handleMacro } from "./flows/macro.mjs";
 import { handleFearGreed } from "./flows/feargreed.mjs";
 import { handleCalendar } from "./flows/calendar.mjs";
 import { handleCatalog, handleHealth } from "./flows/catalog.mjs";
+import { handleHumanityAuth } from "./flows/humanityAuth.mjs";
+import { handleHumanitySearch } from "./flows/humanitySearch.mjs";
+import { handleHumanityFavorites } from "./flows/humanityFavorites.mjs";
 import { withQuota, quotaStatus } from "./quota.mjs";
 
 const FLOWS = {
@@ -27,14 +31,23 @@ const FLOWS = {
   catalog: handleCatalog,
   health: handleHealth,
   quota: async () => quotaStatus(),
+  hauth: handleHumanityAuth,
+  hsearch: handleHumanitySearch,
+  hfav: handleHumanityFavorites,
 };
 
 function json(statusCode, obj) {
+  const noStore =
+    statusCode !== 200 ||
+    (obj &&
+      (obj.flow === "hauth" ||
+        obj.flow === "hfav" ||
+        obj.flow === "hsearch"));
   return {
     statusCode,
     headers: {
       "content-type": "application/json; charset=utf-8",
-      "cache-control": statusCode === 200 ? "public, max-age=30" : "no-store",
+      "cache-control": noStore ? "no-store" : "public, max-age=30",
     },
     body: JSON.stringify(obj),
   };
@@ -107,6 +120,16 @@ export async function handler(event) {
 
   // catalog / health 不计入软配额重活，但仍记账（withQuota 统一）
   try {
+    // Humanity：Authorization 头透传给鉴权
+    const headers = event?.headers || {};
+    const authHeader =
+      headers.authorization ||
+      headers.Authorization ||
+      headers.AUTHORIZATION;
+    if (authHeader && !payload.authorization) {
+      payload.authorization = authHeader;
+    }
+
     const gated = await withQuota(() => run(payload));
     if (!gated.ok) {
       return json(429, {
@@ -117,7 +140,13 @@ export async function handler(event) {
         limits: gated.limits,
       });
     }
-    return json(200, gated.result);
+    const result = gated.result || {};
+    const status =
+      result.__status && Number(result.__status) >= 400
+        ? Number(result.__status)
+        : 200;
+    if (result.__status) delete result.__status;
+    return json(status, result);
   } catch (err) {
     const msg = String(err && err.message ? err.message : err);
     if (/SSM|Parameter|DynamoDB|credentials|AccessDenied|ResourceNotFound/i.test(msg)) {
