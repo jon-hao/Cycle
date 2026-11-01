@@ -189,6 +189,7 @@ window.CycleSelect = (function () {
     country: document.getElementById("countrySelect"),
     lang: document.getElementById("langSelect"),
     themeBtn: document.getElementById("themeBtn"),
+    accountBtn: document.getElementById("accountBtn"),
     main: document.getElementById("main"),
     modal: document.getElementById("modal"),
     footer: document.getElementById("siteFooter"),
@@ -245,6 +246,11 @@ window.CycleSelect = (function () {
       lang === "zh-TW" ? "zh-TW" : lang === "en" ? "en" : "zh-CN";
     document.querySelectorAll("[data-i18n]").forEach((node) => {
       node.textContent = window.t(node.getAttribute("data-i18n"));
+    });
+    document.querySelectorAll("[data-i18n-title]").forEach((node) => {
+      const title = window.t(node.getAttribute("data-i18n-title"));
+      node.title = title;
+      node.setAttribute("aria-label", title);
     });
     if (countryCtl) {
       countryCtl.refresh(countryOptions(), window.CycleState.country);
@@ -461,6 +467,74 @@ window.CycleSelect = (function () {
     renderPage(true, { soft: true });
   }
 
+  function openAccountSheet() {
+    const email = (window.CycleAPI.getEmail && window.CycleAPI.getEmail()) || "";
+    window.CycleUI.openModal(`
+      <div class="sheet-head">
+        <h2>${window.t("account")}</h2>
+        <button type="button" class="icon-btn" data-close aria-label="Close">×</button>
+      </div>
+      <div class="sheet-body account-sheet">
+        <p class="account-email">${email.replace(/</g, "&lt;")}</p>
+        <h3 class="account-sub">${window.t("changePassword")}</h3>
+        <label class="account-field">
+          <span>${window.t("currentPassword")}</span>
+          <input id="pwdCurrent" type="password" autocomplete="current-password" />
+        </label>
+        <label class="account-field">
+          <span>${window.t("newPassword")}</span>
+          <input id="pwdNew" type="password" autocomplete="new-password" />
+        </label>
+        <label class="account-field">
+          <span>${window.t("confirmPassword")}</span>
+          <input id="pwdConfirm" type="password" autocomplete="new-password" />
+        </label>
+        <p id="pwdErr" class="login-err" role="alert"></p>
+        <button type="button" class="login-btn" id="pwdSave">${window.t("savePassword")}</button>
+        <button type="button" class="text-btn account-logout" id="accountLogout">${window.t("logout")}</button>
+      </div>
+    `);
+    const sheet = document.getElementById("sheet");
+    const err = sheet.querySelector("#pwdErr");
+    const save = sheet.querySelector("#pwdSave");
+    const logoutBtn = sheet.querySelector("#accountLogout");
+    if (save) {
+      save.addEventListener("click", async () => {
+        err.textContent = "";
+        const cur = sheet.querySelector("#pwdCurrent").value;
+        const next = sheet.querySelector("#pwdNew").value;
+        const conf = sheet.querySelector("#pwdConfirm").value;
+        if (next.length < 8) {
+          err.textContent = window.t("passwordTooShort");
+          return;
+        }
+        if (next !== conf) {
+          err.textContent = window.t("passwordMismatch");
+          return;
+        }
+        save.disabled = true;
+        try {
+          await window.CycleAPI.changePassword(cur, next);
+          err.textContent = window.t("passwordChanged");
+          sheet.querySelector("#pwdCurrent").value = "";
+          sheet.querySelector("#pwdNew").value = "";
+          sheet.querySelector("#pwdConfirm").value = "";
+        } catch (e) {
+          err.textContent = String(e.message || e);
+        } finally {
+          save.disabled = false;
+        }
+      });
+    }
+    if (logoutBtn) {
+      logoutBtn.addEventListener("click", async () => {
+        await window.CycleAPI.logout();
+        window.CycleUI.closeModal();
+        showLogin();
+      });
+    }
+  }
+
   function wire() {
     countryCtl = window.CycleSelect.mount(
       els.country,
@@ -486,6 +560,10 @@ window.CycleSelect = (function () {
       localStorage.setItem("cycle-theme", window.CycleState.theme);
       applyTheme();
     });
+
+    if (els.accountBtn) {
+      els.accountBtn.addEventListener("click", openAccountSheet);
+    }
 
     document.querySelectorAll(".nav-btn").forEach((b) => {
       b.addEventListener("click", () => setPage(b.dataset.page));

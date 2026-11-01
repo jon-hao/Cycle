@@ -82,6 +82,7 @@ export async function putCredential(app, email, password) {
   const a = normalizeApp(app);
   const em = String(email || "").trim().toLowerCase();
   if (!a || !em || !password) throw new Error("app/email/password required");
+  const existing = await getCredential(a, em);
   const rec = makePasswordRecord(password);
   const item = {
     pk: credPk(a),
@@ -90,7 +91,8 @@ export async function putCredential(app, email, password) {
     email: em,
     ...rec,
     updatedAt: new Date().toISOString(),
-    createdAt: new Date().toISOString(),
+    createdAt:
+      (existing && existing.createdAt) || new Date().toISOString(),
   };
   // 不写明文 password
   await dbPut(item);

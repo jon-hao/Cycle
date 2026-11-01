@@ -8,6 +8,7 @@ import {
   requireAppSession,
   requireHumanitySession,
   getCredential,
+  putCredential,
   verifyPassword,
   createSession,
   destroySession,
@@ -35,6 +36,50 @@ export async function handleHumanityAuth(payload) {
   if (action === "logout") {
     await destroySession(app, payload);
     return { flow: "hauth", ok: true, loggedOut: true, app };
+  }
+
+  if (action === "password" || action === "changepassword") {
+    const sess = await requireAppSession(payload, app);
+    if (!sess.ok) return sess;
+    const current = String(
+      payload.currentPassword || payload.oldPassword || ""
+    );
+    const next = String(payload.newPassword || payload.password || "");
+    if (!current || !next) {
+      return {
+        flow: "hauth",
+        ok: false,
+        __status: 400,
+        error: "current and new password required",
+      };
+    }
+    if (next.length < 8) {
+      return {
+        flow: "hauth",
+        ok: false,
+        __status: 400,
+        error: "password too short",
+      };
+    }
+    if (current === next) {
+      return {
+        flow: "hauth",
+        ok: false,
+        __status: 400,
+        error: "password unchanged",
+      };
+    }
+    const cred = await getCredential(app, sess.email);
+    if (!cred || !verifyPassword(current, cred)) {
+      return {
+        flow: "hauth",
+        ok: false,
+        __status: 400,
+        error: "invalid current password",
+      };
+    }
+    await putCredential(app, sess.email, next);
+    return { flow: "hauth", ok: true, changed: true, app, email: sess.email };
   }
 
   const email = String(payload.email || "").trim().toLowerCase();

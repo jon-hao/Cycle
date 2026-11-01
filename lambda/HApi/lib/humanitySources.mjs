@@ -4,9 +4,9 @@
  */
 
 const CHANNELS = [
-  { internal: "pornhub", value: "ch1", label: "Channel 1" },
-  { internal: "xvideos", value: "ch2", label: "Channel 2" },
-  { internal: "eporner", value: "ch3", label: "Channel 3" },
+  { internal: "pornhub", value: "ch1", label: "Pornhub" },
+  { internal: "xvideos", value: "ch2", label: "XVideos" },
+  { internal: "eporner", value: "ch3", label: "Eporner" },
 ];
 
 const byInternal = Object.fromEntries(CHANNELS.map((c) => [c.internal, c]));
@@ -14,7 +14,7 @@ const byPublic = Object.fromEntries(CHANNELS.map((c) => [c.value, c]));
 
 export function listPublicSources() {
   return [
-    { value: "all", label: "All" },
+    { value: "all", label: "All sources" },
     ...CHANNELS.map((c) => ({ value: c.value, label: c.label })),
   ];
 }

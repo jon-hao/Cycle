@@ -1879,6 +1879,48 @@ button,
 .login-lang-wrap .sq-select {
   min-width: 120px;
 }
+
+.account-sheet {
+  display: grid;
+  gap: 12px;
+  padding-bottom: 8px;
+}
+.account-email {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  word-break: break-all;
+}
+.account-sub {
+  margin: 8px 0 0;
+  font-size: 1rem;
+}
+.account-field {
+  display: grid;
+  gap: 6px;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+.account-field input {
+  width: 100%;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--ink);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.account-logout {
+  justify-self: center;
+  margin-top: 4px;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font-weight: 700;
+}
+.account-logout:hover {
+  color: var(--ink);
+}
 .login-card {
   width: min(400px, 100%);
   display: grid;
