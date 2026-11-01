@@ -60,28 +60,8 @@ function isMediaPreview(url) {
   return /\.(webm|mp4|gif|webp)(\?|#|$)/i.test(String(url || ""));
 }
 
-async function searchEporner(q, page) {
-  const searchBase = srcEpornerSearch();
-  const site = srcEpornerSite();
-  const url =
-    searchBase +
-    (searchBase.includes("?") ? "&" : "?") +
-    new URLSearchParams({
-      query: q,
-      per_page: String(PAGE_SIZE),
-      page: String(page || 1),
-      thumbsize: "big",
-      order: "latest",
-      gay: "0",
-      lq: "0",
-      format: "json",
-    }).toString();
-  const d = await fetchJson(url, {
-    timeout: 15000,
-    headers: { ...UA, accept: "application/json" },
-  });
-  const rows = (d && d.videos) || [];
-  return rows.map((v) => {
+function mapEpornerRows(rows, site) {
+  return (rows || []).map((v) => {
     const id = String(v.id || v.idh || "");
     const pageUrl =
       v.url || (id ? joinUrl(site, "/video-" + id + "/") : null);
@@ -108,6 +88,34 @@ async function searchEporner(q, page) {
       views: v.views || null,
     };
   });
+}
+
+async function searchEporner(q, page, order) {
+  const searchBase = srcEpornerSearch();
+  const site = srcEpornerSite();
+  const url =
+    searchBase +
+    (searchBase.includes("?") ? "&" : "?") +
+    new URLSearchParams({
+      query: q == null ? "" : String(q),
+      per_page: String(PAGE_SIZE),
+      page: String(page || 1),
+      thumbsize: "big",
+      order: order || "latest",
+      gay: "0",
+      lq: "0",
+      format: "json",
+    }).toString();
+  const d = await fetchJson(url, {
+    timeout: 15000,
+    headers: { ...UA, accept: "application/json" },
+  });
+  return mapEpornerRows((d && d.videos) || [], site);
+}
+
+async function browseEporner(page) {
+  // 无关键词：按周热门推荐
+  return searchEporner("", page, "top-weekly");
 }
 
 function isPornhubPaid(cardHtml) {
@@ -164,6 +172,23 @@ function parsePornhubHtml(html, site, seen) {
   return out;
 }
 
+async function fetchPornhubList(url, site, seen, out) {
+  const html = await fetchText(url, {
+    timeout: 15000,
+    headers: {
+      ...UA,
+      accept: "text/html",
+      referer: site + "/",
+    },
+  });
+  const batch = parsePornhubHtml(html, site, seen);
+  for (const item of batch) {
+    out.push(item);
+    if (out.length >= PAGE_SIZE) break;
+  }
+  return batch.length;
+}
+
 async function searchPornhub(q, page) {
   const searchBase = srcPornhubSearch();
   const site = srcPornhubSite();
@@ -179,20 +204,24 @@ async function searchPornhub(q, page) {
         search: q,
         page: String(p),
       }).toString();
-    const html = await fetchText(url, {
-      timeout: 15000,
-      headers: {
-        ...UA,
-        accept: "text/html",
-        referer: site + "/",
-      },
-    });
-    const batch = parsePornhubHtml(html, site, seen);
-    if (!batch.length) break;
-    for (const item of batch) {
-      out.push(item);
-      if (out.length >= PAGE_SIZE) break;
-    }
+    const n = await fetchPornhubList(url, site, seen, out);
+    if (!n) break;
+  }
+  return out;
+}
+
+async function browsePornhub(page) {
+  const site = srcPornhubSite();
+  const out = [];
+  const seen = new Set();
+  const startPage = Math.max(1, page || 1);
+  for (let p = startPage; p < startPage + 4 && out.length < PAGE_SIZE; p++) {
+    const url =
+      site.replace(/\/$/, "") +
+      "/video?" +
+      new URLSearchParams({ o: "ht", page: String(p) }).toString();
+    const n = await fetchPornhubList(url, site, seen, out);
+    if (!n) break;
   }
   return out;
 }
@@ -251,6 +280,49 @@ function parseXvideosHtml(html, site, seen) {
   return out;
 }
 
+async function fetchXvideosList(url, site, seen, out, allowLegacy) {
+  const html = await fetchText(url, {
+    timeout: 15000,
+    headers: {
+      ...UA,
+      accept: "text/html",
+      referer: site + "/",
+    },
+  });
+  const batch = parseXvideosHtml(html, site, seen);
+  if (!batch.length && allowLegacy) {
+    const legacy =
+      /id="video_(\d+)"[\s\S]*?href="(\/video\.([^/"]+)\/[^"]+)"[\s\S]*?(?:data-src|src)="(https:\/\/[^"]+)"[\s\S]{0,800}?(?:data-previewvideo="([^"]*)")?[\s\S]{0,500}?title="([^"]*)"/gi;
+    let m;
+    while ((m = legacy.exec(html)) && out.length < PAGE_SIZE) {
+      const eid = m[3] || m[1];
+      const chunk = m[0];
+      if (seen.has(eid) || isXvideosPaid(chunk)) continue;
+      seen.add(eid);
+      const thumb = normalizeThumb(m[4]);
+      const preview = normalizeThumb(m[5]);
+      if (!thumb && !preview) continue;
+      out.push({
+        id: "xvideos:" + eid,
+        source: "xvideos",
+        title: clean(m[6]) || "XVideos " + eid,
+        thumb: thumb || preview,
+        preview: preview || thumb,
+        url: joinUrl(site, m[2]),
+        embed: joinUrl(site, "/embedframe/" + eid),
+        duration: null,
+        views: null,
+      });
+    }
+    return out.length;
+  }
+  for (const item of batch) {
+    out.push(item);
+    if (out.length >= PAGE_SIZE) break;
+  }
+  return batch.length;
+}
+
 async function searchXvideos(q, page) {
   const searchBase = srcXvideosSearch();
   const site = srcXvideosSite();
@@ -266,49 +338,22 @@ async function searchXvideos(q, page) {
       encodeURIComponent(q) +
       "&p=" +
       String(Math.max(0, p - 1));
-    const html = await fetchText(url, {
-      timeout: 15000,
-      headers: {
-        ...UA,
-        accept: "text/html",
-        referer: site + "/",
-      },
-    });
-    const batch = parseXvideosHtml(html, site, seen);
-    if (!batch.length) {
-      // 旧版兜底仅第一页试一次
-      if (p === startPage) {
-        const legacy =
-          /id="video_(\d+)"[\s\S]*?href="(\/video\.([^/"]+)\/[^"]+)"[\s\S]*?(?:data-src|src)="(https:\/\/[^"]+)"[\s\S]{0,800}?(?:data-previewvideo="([^"]*)")?[\s\S]{0,500}?title="([^"]*)"/gi;
-        let m;
-        while ((m = legacy.exec(html)) && out.length < PAGE_SIZE) {
-          const eid = m[3] || m[1];
-          const chunk = m[0];
-          if (seen.has(eid) || isXvideosPaid(chunk)) continue;
-          seen.add(eid);
-          const thumb = normalizeThumb(m[4]);
-          const preview = normalizeThumb(m[5]);
-          if (!thumb && !preview) continue;
-          out.push({
-            id: "xvideos:" + eid,
-            source: "xvideos",
-            title: clean(m[6]) || "XVideos " + eid,
-            thumb: thumb || preview,
-            preview: preview || thumb,
-            url: joinUrl(site, m[2]),
-            embed: joinUrl(site, "/embedframe/" + eid),
-            duration: null,
-            views: null,
-          });
-        }
-      }
-      if (!out.length) break;
-      continue;
-    }
-    for (const item of batch) {
-      out.push(item);
-      if (out.length >= PAGE_SIZE) break;
-    }
+    const n = await fetchXvideosList(url, site, seen, out, p === startPage);
+    if (!n && !out.length) break;
+  }
+  return out;
+}
+
+async function browseXvideos(page) {
+  const site = srcXvideosSite();
+  const out = [];
+  const seen = new Set();
+  const startPage = Math.max(1, page || 1);
+  for (let p = startPage; p < startPage + 3 && out.length < PAGE_SIZE; p++) {
+    const url =
+      site.replace(/\/$/, "") + "/?p=" + String(Math.max(0, p - 1));
+    const n = await fetchXvideosList(url, site, seen, out, p === startPage);
+    if (!n && !out.length) break;
   }
   return out;
 }
@@ -331,9 +376,7 @@ export async function handleHumanitySearch(payload) {
   if (!sess.ok) return sess;
 
   const q = String(payload.q || payload.query || "").trim();
-  if (!q) {
-    return { flow: "hsearch", ok: false, __status: 400, error: "q required" };
-  }
+  const mode = q ? "search" : "recommend";
   const source = toInternalSource(payload.source || "all");
   if (!source) {
     return { flow: "hsearch", ok: false, __status: 400, error: "unknown source" };
@@ -341,14 +384,26 @@ export async function handleHumanitySearch(payload) {
   const page = Math.max(1, Number(payload.page) || 1);
 
   const jobs = [];
-  if (source === "all" || source === "eporner") {
-    jobs.push(safe("eporner", () => searchEporner(q, page)));
-  }
-  if (source === "all" || source === "pornhub") {
-    jobs.push(safe("pornhub", () => searchPornhub(q, page)));
-  }
-  if (source === "all" || source === "xvideos") {
-    jobs.push(safe("xvideos", () => searchXvideos(q, page)));
+  if (mode === "recommend") {
+    if (source === "all" || source === "eporner") {
+      jobs.push(safe("eporner", () => browseEporner(page)));
+    }
+    if (source === "all" || source === "pornhub") {
+      jobs.push(safe("pornhub", () => browsePornhub(page)));
+    }
+    if (source === "all" || source === "xvideos") {
+      jobs.push(safe("xvideos", () => browseXvideos(page)));
+    }
+  } else {
+    if (source === "all" || source === "eporner") {
+      jobs.push(safe("eporner", () => searchEporner(q, page)));
+    }
+    if (source === "all" || source === "pornhub") {
+      jobs.push(safe("pornhub", () => searchPornhub(q, page)));
+    }
+    if (source === "all" || source === "xvideos") {
+      jobs.push(safe("xvideos", () => searchXvideos(q, page)));
+    }
   }
   if (!jobs.length) {
     return { flow: "hsearch", ok: false, __status: 400, error: "unknown source" };
@@ -372,6 +427,7 @@ export async function handleHumanitySearch(payload) {
     flow: "hsearch",
     ok: true,
     app: "humanity",
+    mode,
     q,
     source: pubSource,
     page,
