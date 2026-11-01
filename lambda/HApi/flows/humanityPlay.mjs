@@ -1,9 +1,9 @@
 /**
- * 解析可直链播放地址（优先 <video>），失败则返回可用 embed。
+ * 解析可直链播放地址（优先 <video> 最高清），失败则返回可用 embed。
  * 源站基址来自 Lambda Env。
  */
 
-import { fetchText } from "../lib/http.mjs";
+import { fetchText, fetchFinalUrl } from "../lib/http.mjs";
 import { requireHumanitySession } from "./humanityAuth.mjs";
 import {
   srcEpornerSite,
@@ -49,6 +49,55 @@ function epEmbedFromPage(page) {
   const m = String(page || "").match(/\/(?:video-|embed\/|hd-porn\/)([A-Za-z0-9]+)/);
   if (!m) return null;
   return srcEpornerSite().replace(/\/$/, "") + "/embed/" + m[1] + "/";
+}
+
+function qualityHeight(q) {
+  if (q == null) return 0;
+  if (typeof q === "number" && Number.isFinite(q)) return q;
+  if (Array.isArray(q)) return 0;
+  const s = String(q);
+  if (/4k|2160|uhd/i.test(s)) return 2160;
+  const m = s.match(/(\d{3,4})/);
+  return m ? Number(m[1]) : 0;
+}
+
+function labelQuality(h) {
+  const n = Number(h) || 0;
+  if (n >= 2160) return "4K";
+  if (n >= 100) return n + "p";
+  return null;
+}
+
+function unescapeUrl(u) {
+  return String(u || "")
+    .replace(/\\u0026/g, "&")
+    .replace(/\\\//g, "/")
+    .replace(/\\+/g, "");
+}
+
+/** mediaDefinitions 等嵌套数组：用括号平衡提取，避免非贪婪正则截断 */
+function extractJsonArrayAfter(html, key) {
+  const idx = String(html || "").indexOf(key);
+  if (idx < 0) return null;
+  const from = html.indexOf("[", idx);
+  if (from < 0) return null;
+  let depth = 0;
+  const max = Math.min(html.length, from + 500000);
+  for (let i = from; i < max; i++) {
+    const ch = html[i];
+    if (ch === "[") depth++;
+    else if (ch === "]") {
+      depth--;
+      if (depth === 0) {
+        try {
+          return JSON.parse(html.slice(from, i + 1));
+        } catch (_) {
+          return null;
+        }
+      }
+    }
+  }
+  return null;
 }
 
 function pickHighestHlsVariant(masterUrl, masterText) {
@@ -100,7 +149,7 @@ async function resolveXvideos(page) {
       const best = pickHighestHlsVariant(hlsMaster, masterText);
       if (best) {
         hls = best.url;
-        quality = best.name || best.height + "p";
+        quality = best.name || labelQuality(best.height);
       } else {
         hls = hlsMaster;
       }
@@ -109,8 +158,8 @@ async function resolveXvideos(page) {
     }
   }
 
-  // 优先 HLS 最高清；否则退回 High/Low mp4
   const stream = hls || high || low || null;
+  if (!quality && high) quality = "HQ";
   return {
     stream,
     hls: hls || hlsMaster || null,
@@ -124,48 +173,153 @@ async function resolvePornhub(page) {
     timeout: 18000,
     headers: { ...UA, accept: "text/html", referer: srcPornhubSite() + "/" },
   });
-  let stream = null;
-  const defs = html.match(/mediaDefinitions\s*[:=]\s*(\[[\s\S]*?\])\s*[,;]/);
-  if (defs) {
+  const embed = phEmbedFromPage(page);
+  const arr = extractJsonArrayAfter(html, "mediaDefinitions") || [];
+
+  const entries = (arr || [])
+    .filter((x) => x && x.videoUrl)
+    .map((x) => {
+      const url = unescapeUrl(x.videoUrl);
+      const h =
+        Number(x.height) ||
+        qualityHeight(x.quality) ||
+        qualityHeight(url) ||
+        0;
+      const fmt = String(x.format || "").toLowerCase();
+      const isHls = fmt === "hls" || /\.m3u8(\?|#|$)/i.test(url);
+      const isGetMedia = /\/video\/get_media\?/i.test(url);
+      return { url, h, isHls, isGetMedia, raw: x };
+    });
+
+  // 1) 直接选最高清 HLS（每档已是独立 master）
+  const hlsList = entries.filter((e) => e.isHls && e.url).sort((a, b) => b.h - a.h);
+  if (hlsList.length) {
+    const best = hlsList[0];
+    return {
+      stream: best.url,
+      hls: best.url,
+      quality: labelQuality(best.h) || "HD",
+      embed,
+    };
+  }
+
+  // 2) get_media → 多档 progressive mp4
+  const gm = entries.find((e) => e.isGetMedia);
+  if (gm) {
     try {
-      const arr = JSON.parse(defs[1]);
-      const mp4 = (arr || [])
-        .filter((x) => x && x.videoUrl && /mp4/i.test(String(x.format || x.videoUrl)))
-        .sort(
-          (a, b) =>
-            Number(b.quality || b.height || 0) - Number(a.quality || a.height || 0)
-        );
-      if (mp4.length) stream = mp4[0].videoUrl;
-      if (!stream) {
-        const any = (arr || []).find((x) => x && x.videoUrl);
-        if (any) stream = any.videoUrl;
+      const body = await fetchText(gm.url, {
+        timeout: 12000,
+        headers: {
+          ...UA,
+          accept: "application/json,*/*",
+          referer: page,
+        },
+      });
+      const list = JSON.parse(body);
+      if (Array.isArray(list) && list.length) {
+        const ranked = list
+          .filter((x) => x && x.videoUrl)
+          .map((x) => ({
+            url: unescapeUrl(x.videoUrl),
+            h: Number(x.height) || qualityHeight(x.quality) || 0,
+          }))
+          .sort((a, b) => b.h - a.h);
+        if (ranked.length) {
+          return {
+            stream: ranked[0].url,
+            hls: null,
+            quality: labelQuality(ranked[0].h) || "HD",
+            embed,
+          };
+        }
       }
     } catch (_) {}
   }
-  if (!stream) {
-    stream =
-      (html.match(/"videoUrl"\s*:\s*"(https:[^"]+\.mp4[^"]*)"/i) || [])[1] || null;
-    if (stream) stream = stream.replace(/\\u0026/g, "&").replace(/\\+/g, "");
+
+  // 3) 其它 mp4 直链
+  const mp4 = entries
+    .filter((e) => !e.isHls && !e.isGetMedia && /\.mp4/i.test(e.url))
+    .sort((a, b) => b.h - a.h);
+  if (mp4.length) {
+    return {
+      stream: mp4[0].url,
+      hls: null,
+      quality: labelQuality(mp4[0].h) || null,
+      embed,
+    };
   }
+
+  const fallback =
+    (html.match(/"videoUrl"\s*:\s*"(https:[^"]+\.m3u8[^"]*)"/i) ||
+      html.match(/"videoUrl"\s*:\s*"(https:[^"]+\.mp4[^"]*)"/i) ||
+      [])[1] || null;
   return {
-    stream,
-    hls: null,
-    embed: phEmbedFromPage(page),
+    stream: fallback ? unescapeUrl(fallback) : null,
+    hls: fallback && /\.m3u8/i.test(fallback) ? unescapeUrl(fallback) : null,
+    quality: null,
+    embed,
   };
 }
 
 async function resolveEporner(page, embed) {
-  const target = embed || epEmbedFromPage(page) || page;
+  const site = srcEpornerSite().replace(/\/$/, "");
+  const target = page || embed || epEmbedFromPage(page);
+  const embedOut = embed || epEmbedFromPage(page) || (target && /\/embed\//i.test(target) ? target : null);
+
   try {
-    const html = await fetchText(target, {
+    const html = await fetchText(target || embedOut, {
       timeout: 15000,
-      headers: { ...UA, accept: "text/html", referer: srcEpornerSite() + "/" },
+      headers: { ...UA, accept: "text/html", referer: site + "/" },
     });
+
+    // /dload/<id>/<quality>/... — 从高到低尝试，跳过需登录的 1080/4K
+    const id =
+      ((target || "").match(/\/(?:video-|embed\/|dload\/)([A-Za-z0-9]+)/) ||
+        [])[1] ||
+      ((html.match(/\/dload\/([A-Za-z0-9]+)\//) || [])[1] || "");
+    const quals = [
+      ...new Set(
+        [...String(html).matchAll(/\/dload\/[A-Za-z0-9]+\/(\d{3,4})\//g)].map(
+          (m) => Number(m[1])
+        )
+      ),
+    ]
+      .filter((n) => n > 0)
+      .sort((a, b) => b - a);
+
+    if (id && quals.length) {
+      for (const q of quals) {
+        try {
+          const finalUrl = await fetchFinalUrl(site + "/dload/" + id + "/" + q + "/", {
+            timeout: 10000,
+            headers: { ...UA, referer: site + "/" },
+          });
+          if (
+            finalUrl &&
+            /\.mp4(\?|#|$)/i.test(finalUrl) &&
+            !/\/login\//i.test(finalUrl)
+          ) {
+            return {
+              stream: finalUrl,
+              hls: null,
+              quality: labelQuality(q),
+              embed: embedOut || epEmbedFromPage(page),
+            };
+          }
+        } catch (_) {}
+      }
+    }
+
     const stream =
       (html.match(/https:\/\/[^"'\s]+\.mp4[^"'\s]*/i) || [])[0] || null;
-    return { stream, hls: null, embed: target };
+    return {
+      stream,
+      hls: null,
+      quality: null,
+      embed: embedOut || epEmbedFromPage(page) || target,
+    };
   } catch (_) {
-    return { stream: null, hls: null, embed: target };
+    return { stream: null, hls: null, quality: null, embed: embedOut || target };
   }
 }
 

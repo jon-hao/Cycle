@@ -30,7 +30,8 @@ function normalizeItem(raw) {
     preview: raw.preview ? String(raw.preview).slice(0, 800) : null,
     url: raw.url ? String(raw.url).slice(0, 800) : null,
     embed: raw.embed ? String(raw.embed).slice(0, 800) : null,
-    duration: raw.duration != null ? raw.duration : null,
+    duration: raw.duration != null ? String(raw.duration).slice(0, 32) : null,
+    quality: raw.quality != null ? String(raw.quality).slice(0, 16) : null,
   };
 }
 
@@ -54,6 +55,7 @@ export async function handleHumanityFavorites(payload) {
           url: r.url,
           embed: r.embed,
           duration: r.duration,
+          quality: r.quality,
           savedAt: r.savedAt,
         })
       )

@@ -32,6 +32,26 @@ export async function fetchText(url, opts = {}) {
   }
 }
 
+/** Follow redirects; return final URL (useful for CDN dload links). */
+export async function fetchFinalUrl(url, opts = {}) {
+  const timeout = opts.timeout || 12000;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeout);
+  const method = opts.method || "HEAD";
+  try {
+    const res = await fetch(url, {
+      method,
+      signal: ctrl.signal,
+      headers: opts.headers || {},
+      redirect: "follow",
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status} ${url}`);
+    return res.url || url;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export function last(pts) {
   return pts && pts.length ? pts[pts.length - 1].v : null;
 }

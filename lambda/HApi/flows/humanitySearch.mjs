@@ -60,6 +60,43 @@ function isMediaPreview(url) {
   return /\.(webm|mp4|gif|webp)(\?|#|$)/i.test(String(url || ""));
 }
 
+/** 统一时长展示：秒 / "15 min" / "25:35" → "M:SS" 或 "H:MM:SS" */
+function formatDuration(v) {
+  if (v == null || v === "") return null;
+  if (typeof v === "number" || /^\d+(\.\d+)?$/.test(String(v).trim())) {
+    let sec = Math.floor(Number(v));
+    if (!Number.isFinite(sec) || sec < 0) return null;
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    const s = sec % 60;
+    if (h > 0) {
+      return h + ":" + String(m).padStart(2, "0") + ":" + String(s).padStart(2, "0");
+    }
+    return m + ":" + String(s).padStart(2, "0");
+  }
+  const str = clean(v);
+  const minOnly = str.match(/^(\d+)\s*mins?$/i);
+  if (minOnly) return Number(minOnly[1]) + ":00";
+  if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(str)) return str;
+  return str || null;
+}
+
+function normalizeQuality(raw) {
+  if (raw == null || raw === "") return null;
+  const s = clean(String(raw));
+  if (!s) return null;
+  if (/4k|uhd|2160/i.test(s)) return "4K";
+  const m = s.match(/(\d{3,4})\s*p?/i);
+  if (m) {
+    const n = Number(m[1]);
+    if (n >= 2160) return "4K";
+    if (n >= 144) return n + "p";
+  }
+  if (/^hd$/i.test(s)) return "HD";
+  if (/^sd$/i.test(s)) return "SD";
+  return null;
+}
+
 function mapEpornerRows(rows, site) {
   return (rows || []).map((v) => {
     const id = String(v.id || v.idh || "");
@@ -76,6 +113,12 @@ function mapEpornerRows(rows, site) {
     const embed =
       (v.embed && String(v.embed)) ||
       (id ? joinUrl(site, "/embed/" + id + "/") : null);
+    const sec =
+      v.length_sec != null
+        ? Number(v.length_sec)
+        : v.length_min != null
+          ? Number(v.length_min) * 60
+          : null;
     return {
       id: "eporner:" + id,
       source: "eporner",
@@ -84,7 +127,8 @@ function mapEpornerRows(rows, site) {
       preview: preview || thumb,
       url: pageUrl,
       embed,
-      duration: v.length_sec || v.length_min || null,
+      duration: formatDuration(sec),
+      quality: normalizeQuality(v.quality || v.best_quality || null),
       views: v.views || null,
     };
   });
@@ -165,6 +209,22 @@ function parsePornhubHtml(html, site, seen) {
         [])[1] || "Pornhub video"
     );
     if (!thumb && !preview) continue;
+    const duration = formatDuration(
+      (body.match(/class="duration"[^>]*>([^<]+)/i) || [])[1]
+    );
+    let quality = null;
+    const hdThumb = (body.match(
+      /class="[^"]*hd-thumbnail[^"]*"[^>]*>([^<]*)/i
+    ) || [])[1];
+    if (hdThumb != null) quality = normalizeQuality(hdThumb || "HD");
+    else if (/class="[^"]*\b4k\b/i.test(body) || />\s*4K\s*</.test(body)) {
+      quality = "4K";
+    } else if (
+      /class="[^"]*\bhd\b/i.test(body) ||
+      /ph-icon-hd|icon-hd/i.test(body)
+    ) {
+      quality = "HD";
+    }
     seen.add(vkey);
     out.push({
       id: "pornhub:" + vkey,
@@ -174,7 +234,8 @@ function parsePornhubHtml(html, site, seen) {
       preview: preview || thumb,
       url: joinUrl(site, "/view_video.php?viewkey=" + vkey),
       embed: joinUrl(site, "/embed/" + vkey),
-      duration: null,
+      duration,
+      quality,
       views: null,
     });
   }
@@ -273,6 +334,16 @@ function parseXvideosHtml(html, site, seen) {
     );
     const title = clean((chunk.match(/title="([^"]*)"/) || [])[1] || "");
     if (!thumb && !preview) continue;
+    const duration = formatDuration(
+      (chunk.match(/class="duration"[^>]*>([^<]+)/i) || [])[1]
+    );
+    const mark = chunk.match(
+      /video-(hd|sd)-mark[^>]*>([^<]*)/i
+    );
+    let quality = null;
+    if (mark) {
+      quality = normalizeQuality(mark[2] || mark[1]);
+    }
     seen.add(eid);
     out.push({
       id: "xvideos:" + eid,
@@ -282,7 +353,8 @@ function parseXvideosHtml(html, site, seen) {
       preview: preview || thumb,
       url: joinUrl(site, path),
       embed: joinUrl(site, "/embedframe/" + eid),
-      duration: null,
+      duration,
+      quality,
       views: null,
     });
   }
@@ -311,6 +383,10 @@ async function fetchXvideosList(url, site, seen, out, allowLegacy) {
       const thumb = normalizeThumb(m[4]);
       const preview = normalizeThumb(m[5]);
       if (!thumb && !preview) continue;
+      const duration = formatDuration(
+        (chunk.match(/class="duration"[^>]*>([^<]+)/i) || [])[1]
+      );
+      const mark = chunk.match(/video-(hd|sd)-mark[^>]*>([^<]*)/i);
       out.push({
         id: "xvideos:" + eid,
         source: "xvideos",
@@ -319,7 +395,8 @@ async function fetchXvideosList(url, site, seen, out, allowLegacy) {
         preview: preview || thumb,
         url: joinUrl(site, m[2]),
         embed: joinUrl(site, "/embedframe/" + eid),
-        duration: null,
+        duration,
+        quality: mark ? normalizeQuality(mark[2] || mark[1]) : null,
         views: null,
       });
     }
