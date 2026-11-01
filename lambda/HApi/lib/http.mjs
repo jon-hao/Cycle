@@ -35,20 +35,34 @@ export async function fetchText(url, opts = {}) {
 /** Follow redirects; return final URL (useful for CDN dload links). */
 export async function fetchFinalUrl(url, opts = {}) {
   const timeout = opts.timeout || 12000;
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), timeout);
-  const method = opts.method || "HEAD";
+  const headers = opts.headers || {};
+  async function once(method) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeout);
+    try {
+      const res = await fetch(url, {
+        method,
+        signal: ctrl.signal,
+        headers,
+        redirect: "follow",
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status} ${url}`);
+      // drain tiny body for GET so connection can close
+      if (method === "GET") {
+        try {
+          await res.arrayBuffer();
+        } catch (_) {}
+      }
+      return res.url || url;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
   try {
-    const res = await fetch(url, {
-      method,
-      signal: ctrl.signal,
-      headers: opts.headers || {},
-      redirect: "follow",
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status} ${url}`);
-    return res.url || url;
-  } finally {
-    clearTimeout(timer);
+    return await once(opts.method || "HEAD");
+  } catch (_) {
+    if (opts.method && opts.method !== "GET") throw _;
+    return await once("GET");
   }
 }
 
