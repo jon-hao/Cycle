@@ -289,13 +289,22 @@ async function resolveEporner(page, embed) {
 
     const embedFinal = embedOut || epEmbedFromPage(page) || target;
     if (id && quals.length) {
-      for (const q of quals) {
-        const dloadUrl = site + "/dload/" + id + "/" + q + "/";
+      // 机房 IP 对 CDN/高码率常失败或超时：优先把最高免登录档（≤720）交给浏览器跟随跳转
+      const freeQ = quals.find((q) => q <= 720) || null;
+      const tryQ = freeQ || quals[quals.length - 1];
+      // 若列表含更高档，快速试一次 HEAD（短超时），成功则用更高清
+      const premium = quals.find((q) => q > 720);
+      if (premium) {
         try {
-          const finalUrl = await fetchFinalUrl(dloadUrl, {
-            timeout: 10000,
-            headers: { ...UA, referer: site + "/" },
-          });
+          const finalUrl = await fetchFinalUrl(
+            site + "/dload/" + id + "/" + premium + "/",
+            {
+              timeout: 5000,
+              method: "HEAD",
+              noGetFallback: true,
+              headers: { ...UA, referer: site + "/" },
+            }
+          );
           if (
             finalUrl &&
             /\.mp4(\?|#|$)/i.test(finalUrl) &&
@@ -304,19 +313,17 @@ async function resolveEporner(page, embed) {
             return {
               stream: finalUrl,
               hls: null,
-              quality: labelQuality(q),
+              quality: labelQuality(premium),
               embed: embedFinal,
             };
           }
         } catch (_) {}
       }
-      // 机房 IP 常拿不到 CDN：把最高「免登录」档（≤720）交给前端直链跟随跳转
-      const freeQ = quals.find((q) => q <= 720) || quals[quals.length - 1];
-      if (freeQ) {
+      if (tryQ) {
         return {
-          stream: site + "/dload/" + id + "/" + freeQ + "/",
+          stream: site + "/dload/" + id + "/" + tryQ + "/",
           hls: null,
-          quality: labelQuality(freeQ),
+          quality: labelQuality(tryQ),
           embed: embedFinal,
         };
       }

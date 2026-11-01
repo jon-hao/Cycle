@@ -60,8 +60,8 @@ export async function fetchFinalUrl(url, opts = {}) {
   }
   try {
     return await once(opts.method || "HEAD");
-  } catch (_) {
-    if (opts.method && opts.method !== "GET") throw _;
+  } catch (err) {
+    if (opts.noGetFallback || opts.method === "GET") throw err;
     return await once("GET");
   }
 }
