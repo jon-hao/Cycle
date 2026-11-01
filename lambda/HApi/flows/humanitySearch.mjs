@@ -105,39 +105,41 @@ async function searchEporner(q, page) {
   });
 }
 
-function isPornhubPaid(chunk) {
-  const s = String(chunk || "");
-  return /VidPg-premVid|premiumIcon|premiumBadge|ph-icon-premium|premiumLabel|js-popPremium|href="[^"]*\/premium\/|data-premium="1"|class="[^"]*premium/i.test(
+function isPornhubPaid(cardHtml) {
+  // 注意：data-entrycode=VidPg-premVid 是统计埋点，不代表付费片；只认卡片内真实 Premium 标记
+  const s = String(cardHtml || "");
+  return /premiumIcon|premiumBadge|ph-icon-premium|premiumLabel|js-popPremium|href="[^"]*\/premium\/(?:video|channel)|data-premium="1"|class="[^"]*premium-badge|class="[^"]*\bpremiumIcon\b/i.test(
     s
   );
 }
 
 function parsePornhubHtml(html, site, seen) {
   const out = [];
-  // 卡片：以 data-video-vkey 为主（embed 必需），向前后各取一块上下文
-  const re = /data-video-vkey="([a-zA-Z0-9]+)"/gi;
+  // 按结果卡片 <li … data-video-vkey> 解析，避免大窗口误伤相邻 Premium UI
+  const re = /<li\b([^>]*data-video-vkey="([a-zA-Z0-9]+)"[^>]*)>([\s\S]*?)<\/li>/gi;
   let m;
   while ((m = re.exec(html)) && out.length < PAGE_SIZE * 2) {
-    const vkey = m[1];
+    const openAttrs = m[1] || "";
+    const vkey = m[2];
+    const body = m[3] || "";
     if (!vkey || seen.has(vkey)) continue;
-    const start = Math.max(0, m.index - 600);
-    const end = Math.min(html.length, m.index + 4500);
-    const chunk = html.slice(start, end);
-    if (isPornhubPaid(chunk)) {
-      seen.add(vkey); // 记住以免 loose 再捡回来
+    const card = openAttrs + " " + body;
+    if (isPornhubPaid(card)) {
+      seen.add(vkey);
       continue;
     }
     const thumb = normalizeThumb(
-      (chunk.match(/data-(?:mediumthumb|image)="([^"]*)"/) ||
-        chunk.match(/(?:data-src|src)="(https:\/\/[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"/) ||
+      (body.match(/data-(?:mediumthumb|image)="([^"]*)"/) ||
+        body.match(/(?:data-src|src)="(https:\/\/[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"/) ||
         [])[1]
     );
     const preview = normalizeThumb(
-      (chunk.match(/data-mediabook="([^"]*)"/) || [])[1]
+      (body.match(/data-mediabook="([^"]*)"/) || [])[1]
     );
     const title = clean(
-      (chunk.match(/\stitle="([^"]*)"/) ||
-        chunk.match(/alt="([^"]*)"/) ||
+      (body.match(/\stitle="([^"]*)"/) ||
+        body.match(/alt="([^"]*)"/) ||
+        openAttrs.match(/\stitle="([^"]*)"/) ||
         [])[1] || "Pornhub video"
     );
     if (!thumb && !preview) continue;
@@ -191,8 +193,9 @@ async function searchPornhub(q, page) {
 }
 
 function isXvideosPaid(chunk) {
+  // 只剔除明确指向 xvideos.red / premium 角标的卡片
   const s = String(chunk || "");
-  return /xvideos\.red|href="https?:\/\/www\.xvideos\.red|icon-f-premium|is-premium|xv-flag-red|class="[^"]*premium|data-is-premium="1"/i.test(
+  return /href="https?:\/\/(?:www\.)?xvideos\.red|icon-f-premium|data-is-premium="1"|class="[^"]*\bpremium\b[^"]*"|xv-flag-red/i.test(
     s
   );
 }
