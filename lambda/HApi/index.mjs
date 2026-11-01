@@ -19,6 +19,7 @@ import { handleCatalog, handleHealth } from "./flows/catalog.mjs";
 import { handleHumanityAuth } from "./flows/humanityAuth.mjs";
 import { handleHumanitySearch } from "./flows/humanitySearch.mjs";
 import { handleHumanityFavorites } from "./flows/humanityFavorites.mjs";
+import { handleHumanityPlay } from "./flows/humanityPlay.mjs";
 import { withQuota, quotaStatus } from "./quota.mjs";
 
 const FLOWS = {
@@ -34,6 +35,7 @@ const FLOWS = {
   hauth: handleHumanityAuth,
   hsearch: handleHumanitySearch,
   hfav: handleHumanityFavorites,
+  hplay: handleHumanityPlay,
 };
 
 function json(statusCode, obj) {
@@ -42,7 +44,8 @@ function json(statusCode, obj) {
     (obj &&
       (obj.flow === "hauth" ||
         obj.flow === "hfav" ||
-        obj.flow === "hsearch"));
+        obj.flow === "hsearch" ||
+        obj.flow === "hplay"));
   return {
     statusCode,
     headers: {

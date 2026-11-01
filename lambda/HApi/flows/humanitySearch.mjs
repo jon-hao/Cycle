@@ -124,26 +124,36 @@ async function searchPornhub(q, page) {
     },
   });
   const out = [];
-  const re =
-    /data-video-id="(\d+)"[\s\S]*?(?:data-mediumthumb|data-image)="([^"]*)"[\s\S]*?(?:data-mediabook="([^"]*)")?[\s\S]*?(?:alt="([^"]*)"|class="title"[^>]*>[\s\S]*?title="([^"]*)")/gi;
-  let m;
   const seen = new Set();
+  // embed / view_video 必须用 viewkey（data-video-vkey），数字 data-video-id 会 404 Video not found
+  const re =
+    /data-video-id="(\d+)"[\s\S]{0,500}?data-video-vkey="([a-zA-Z0-9]+)"([\s\S]{0,3500}?)(?=data-video-id="|$)/gi;
+  let m;
   while ((m = re.exec(html)) && out.length < PAGE_SIZE) {
-    const id = m[1];
-    if (seen.has(id)) continue;
-    seen.add(id);
-    const thumb = normalizeThumb(m[2]);
-    const preview = normalizeThumb(m[3]) || null;
-    const title = clean(m[4] || m[5] || "Pornhub video");
+    const vkey = m[2];
+    if (!vkey || seen.has(vkey)) continue;
+    const chunk = m[3] || "";
+    const thumb = normalizeThumb(
+      (chunk.match(/data-(?:mediumthumb|image)="([^"]*)"/) || [])[1]
+    );
+    const preview = normalizeThumb(
+      (chunk.match(/data-mediabook="([^"]*)"/) || [])[1]
+    );
+    const title = clean(
+      (chunk.match(/\stitle="([^"]*)"/) ||
+        chunk.match(/alt="([^"]*)"/) ||
+        [])[1] || "Pornhub video"
+    );
     if (!thumb && !preview) continue;
+    seen.add(vkey);
     out.push({
-      id: "pornhub:" + id,
+      id: "pornhub:" + vkey,
       source: "pornhub",
       title,
       thumb: thumb || preview,
       preview: preview || thumb,
-      url: joinUrl(site, "/view_video.php?viewkey=" + id),
-      embed: joinUrl(site, "/embed/" + id),
+      url: joinUrl(site, "/view_video.php?viewkey=" + vkey),
+      embed: joinUrl(site, "/embed/" + vkey),
       duration: null,
       views: null,
     });
@@ -152,19 +162,19 @@ async function searchPornhub(q, page) {
     const loose =
       /href="(\/view_video\.php\?viewkey=([a-zA-Z0-9]+))"[^>]*>[\s\S]{0,500}?(?:data-src|src)="(https:\/\/[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"/gi;
     while ((m = loose.exec(html)) && out.length < PAGE_SIZE) {
-      const id = m[2];
-      if (seen.has(id)) continue;
-      seen.add(id);
+      const vkey = m[2];
+      if (seen.has(vkey)) continue;
+      seen.add(vkey);
       const thumb = normalizeThumb(m[3]);
       if (!thumb) continue;
       out.push({
-        id: "pornhub:" + id,
+        id: "pornhub:" + vkey,
         source: "pornhub",
-        title: "Pornhub " + id,
+        title: "Pornhub " + vkey,
         thumb,
         preview: thumb,
         url: joinUrl(site, m[1]),
-        embed: joinUrl(site, "/embed/" + id),
+        embed: joinUrl(site, "/embed/" + vkey),
         duration: null,
         views: null,
       });
@@ -200,17 +210,16 @@ async function searchXvideos(q, page) {
     /id="video_([^"]+)"([^>]*)>([\s\S]*?)(?=id="video_|id="footer"|<\/main>|$)/gi;
   let m;
   while ((m = blockRe.exec(html)) && out.length < PAGE_SIZE) {
-    const eid = clean(m[1]);
     const attrs = m[2] || "";
     const body = m[3] || "";
     const chunk = attrs + " " + body;
-    const num =
-      (chunk.match(/data-id="(\d+)"/) || [])[1] ||
-      (chunk.match(/data-videoid="(\d+)"/) || [])[1] ||
-      (eid.match(/^\d+$/) ? eid : null);
-    const id = num || eid;
-    if (!id || seen.has(id)) continue;
     const path = (chunk.match(/href="(\/video\.[^"]+)"/) || [])[1];
+    // embedframe 必须用 encoded id（路径 /video.<eid>/…），纯数字 data-id 常 404
+    const eid =
+      clean(m[1]) ||
+      (path && (path.match(/^\/video\.([^/]+)/) || [])[1]) ||
+      "";
+    if (!eid || seen.has(eid)) continue;
     if (!path) continue;
     const thumb = normalizeThumb(
       (chunk.match(/data-src="(https:\/\/[^"]+)"/) ||
@@ -224,15 +233,15 @@ async function searchXvideos(q, page) {
     );
     const title = clean((chunk.match(/title="([^"]*)"/) || [])[1] || "");
     if (!thumb && !preview) continue;
-    seen.add(id);
+    seen.add(eid);
     out.push({
-      id: "xvideos:" + id,
+      id: "xvideos:" + eid,
       source: "xvideos",
-      title: title || "XVideos " + id,
+      title: title || "XVideos " + eid,
       thumb: thumb || preview,
       preview: preview || thumb,
       url: joinUrl(site, path),
-      embed: joinUrl(site, "/embedframe/" + id),
+      embed: joinUrl(site, "/embedframe/" + eid),
       duration: null,
       views: null,
     });
@@ -241,22 +250,22 @@ async function searchXvideos(q, page) {
   // 旧版兜底：纯数字 id="video_123"
   if (!out.length) {
     const legacy =
-      /id="video_(\d+)"[\s\S]*?href="(\/video\.[^"]+\/[^"]+)"[\s\S]*?(?:data-src|src)="(https:\/\/[^"]+)"[\s\S]{0,800}?(?:data-previewvideo="([^"]*)")?[\s\S]{0,500}?title="([^"]*)"/gi;
+      /id="video_(\d+)"[\s\S]*?href="(\/video\.([^/"]+)\/[^"]+)"[\s\S]*?(?:data-src|src)="(https:\/\/[^"]+)"[\s\S]{0,800}?(?:data-previewvideo="([^"]*)")?[\s\S]{0,500}?title="([^"]*)"/gi;
     while ((m = legacy.exec(html)) && out.length < PAGE_SIZE) {
-      const id = m[1];
-      if (seen.has(id)) continue;
-      seen.add(id);
-      const thumb = normalizeThumb(m[3]);
-      const preview = normalizeThumb(m[4]);
+      const eid = m[3] || m[1];
+      if (seen.has(eid)) continue;
+      seen.add(eid);
+      const thumb = normalizeThumb(m[4]);
+      const preview = normalizeThumb(m[5]);
       if (!thumb && !preview) continue;
       out.push({
-        id: "xvideos:" + id,
+        id: "xvideos:" + eid,
         source: "xvideos",
-        title: clean(m[5]) || "XVideos " + id,
+        title: clean(m[6]) || "XVideos " + eid,
         thumb: thumb || preview,
         preview: preview || thumb,
         url: joinUrl(site, m[2]),
-        embed: joinUrl(site, "/embedframe/" + id),
+        embed: joinUrl(site, "/embedframe/" + eid),
         duration: null,
         views: null,
       });
