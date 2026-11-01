@@ -184,8 +184,8 @@ window.CycleSelect = (function () {
     loginPassword: document.getElementById("loginPassword"),
     loginBtn: document.getElementById("loginBtn"),
     loginErr: document.getElementById("loginErr"),
+    loginLang: document.getElementById("loginLangSelect"),
     appShell: document.getElementById("appShell"),
-    logoutBtn: document.getElementById("logoutBtn"),
     country: document.getElementById("countrySelect"),
     lang: document.getElementById("langSelect"),
     themeBtn: document.getElementById("themeBtn"),
@@ -202,6 +202,7 @@ window.CycleSelect = (function () {
 
   let countryCtl = null;
   let langCtl = null;
+  let loginLangCtl = null;
   let refreshing = false;
   let autoTimer = null;
   let appReady = false;
@@ -231,7 +232,14 @@ window.CycleSelect = (function () {
     }
   }
 
-  function applyLang() {
+  function setLang(v, opts) {
+    const next = v || "zh";
+    window.CycleState.lang = next;
+    localStorage.setItem("cycle-lang", next);
+    applyLang({ softPage: !!(opts && opts.softPage) });
+  }
+
+  function applyLang(opts) {
     const lang = window.CycleState.lang;
     document.documentElement.lang =
       lang === "zh-TW" ? "zh-TW" : lang === "en" ? "en" : "zh-CN";
@@ -244,9 +252,17 @@ window.CycleSelect = (function () {
     if (langCtl) {
       langCtl.refresh(langOptions(), window.CycleState.lang);
     }
-    paintModelFab(window.CycleLLM.getStatus());
-    paintRefreshFab();
-    moveIndicator(false);
+    if (loginLangCtl) {
+      loginLangCtl.refresh(langOptions(), window.CycleState.lang);
+    }
+    if (appReady) {
+      paintModelFab(window.CycleLLM.getStatus());
+      paintRefreshFab();
+      moveIndicator(false);
+      if (opts && opts.softPage) {
+        renderPage(false, { soft: true });
+      }
+    }
   }
 
   function paintModelFab(st) {
@@ -461,12 +477,7 @@ window.CycleSelect = (function () {
       els.lang,
       langOptions(),
       window.CycleState.lang,
-      (v) => {
-        window.CycleState.lang = v;
-        localStorage.setItem("cycle-lang", v);
-        applyLang();
-        renderPage(false, { soft: true });
-      }
+      (v) => setLang(v, { softPage: true })
     );
 
     els.themeBtn.addEventListener("click", () => {
@@ -533,12 +544,6 @@ window.CycleSelect = (function () {
       wireModelFab();
       wireRefreshFab();
       wirePullToRefresh();
-      if (els.logoutBtn) {
-        els.logoutBtn.addEventListener("click", async () => {
-          await window.CycleAPI.logout();
-          showLogin();
-        });
-      }
       appReady = true;
     }
     applyLang();
@@ -564,6 +569,16 @@ window.CycleSelect = (function () {
 
   async function init() {
     applyTheme();
+    if (els.loginLang) {
+      loginLangCtl = window.CycleSelect.mount(
+        els.loginLang,
+        langOptions(),
+        window.CycleState.lang,
+        (v) => setLang(v)
+      );
+    }
+    applyLang();
+
     if (els.loginForm) {
       els.loginForm.addEventListener("submit", async (ev) => {
         ev.preventDefault();

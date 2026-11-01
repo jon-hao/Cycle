@@ -153,6 +153,10 @@ window.CycleI18n = {
     autoRefreshOn: "自动刷新开",
     autoRefreshOff: "自动刷新关",
     autoRefreshHint: "每 3 分钟刷新当前页",
+    loginTagline: "私有看板 — 请登录",
+    loginEmail: "邮箱",
+    loginPassword: "密码",
+    loginSubmit: "登录",
   },
   "zh-TW": {
     appName: "Cycle",
@@ -308,6 +312,10 @@ window.CycleI18n = {
     autoRefreshOn: "自動重新整理開",
     autoRefreshOff: "自動重新整理關",
     autoRefreshHint: "每 3 分鐘重新整理目前頁",
+    loginTagline: "私有看板 — 請登入",
+    loginEmail: "電子郵件",
+    loginPassword: "密碼",
+    loginSubmit: "登入",
   },
   en: {
     appName: "Cycle",
@@ -463,6 +471,10 @@ window.CycleI18n = {
     autoRefreshOn: "Auto-refresh on",
     autoRefreshOff: "Auto-refresh off",
     autoRefreshHint: "Refresh this page every 3 minutes",
+    loginTagline: "Private dashboard — sign in",
+    loginEmail: "Email",
+    loginPassword: "Password",
+    loginSubmit: "Sign in",
   },
 };
 

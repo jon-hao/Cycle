@@ -1869,6 +1869,16 @@ button,
 .login-view[hidden] {
   display: none !important;
 }
+.login-lang-wrap {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 5;
+  min-width: 120px;
+}
+.login-lang-wrap .sq-select {
+  min-width: 120px;
+}
 .login-card {
   width: min(400px, 100%);
   display: grid;
@@ -1926,19 +1936,6 @@ button,
   margin: 0;
   color: #c44;
   font-size: 0.85rem;
-}
-.text-logout {
-  border: 0;
-  background: transparent;
-  color: var(--muted);
-  font: inherit;
-  font-size: 0.78rem;
-  font-weight: 700;
-  cursor: pointer;
-  padding: 6px 4px;
-}
-.text-logout:hover {
-  color: var(--ink);
 }
 .app-shell[hidden] {
   display: none !important;
