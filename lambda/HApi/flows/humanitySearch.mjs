@@ -105,36 +105,32 @@ async function searchEporner(q, page) {
   });
 }
 
-async function searchPornhub(q, page) {
-  const searchBase = srcPornhubSearch();
-  const site = srcPornhubSite();
-  const url =
-    searchBase +
-    (searchBase.includes("?") ? "&" : "?") +
-    new URLSearchParams({
-      search: q,
-      page: String(page || 1),
-    }).toString();
-  const html = await fetchText(url, {
-    timeout: 15000,
-    headers: {
-      ...UA,
-      accept: "text/html",
-      referer: site + "/",
-    },
-  });
+function isPornhubPaid(chunk) {
+  const s = String(chunk || "");
+  return /VidPg-premVid|premiumIcon|premiumBadge|ph-icon-premium|premiumLabel|js-popPremium|href="[^"]*\/premium\/|data-premium="1"|class="[^"]*premium/i.test(
+    s
+  );
+}
+
+function parsePornhubHtml(html, site, seen) {
   const out = [];
-  const seen = new Set();
-  // embed / view_video 必须用 viewkey（data-video-vkey），数字 data-video-id 会 404 Video not found
-  const re =
-    /data-video-id="(\d+)"[\s\S]{0,500}?data-video-vkey="([a-zA-Z0-9]+)"([\s\S]{0,3500}?)(?=data-video-id="|$)/gi;
+  // 卡片：以 data-video-vkey 为主（embed 必需），向前后各取一块上下文
+  const re = /data-video-vkey="([a-zA-Z0-9]+)"/gi;
   let m;
-  while ((m = re.exec(html)) && out.length < PAGE_SIZE) {
-    const vkey = m[2];
+  while ((m = re.exec(html)) && out.length < PAGE_SIZE * 2) {
+    const vkey = m[1];
     if (!vkey || seen.has(vkey)) continue;
-    const chunk = m[3] || "";
+    const start = Math.max(0, m.index - 600);
+    const end = Math.min(html.length, m.index + 4500);
+    const chunk = html.slice(start, end);
+    if (isPornhubPaid(chunk)) {
+      seen.add(vkey); // 记住以免 loose 再捡回来
+      continue;
+    }
     const thumb = normalizeThumb(
-      (chunk.match(/data-(?:mediumthumb|image)="([^"]*)"/) || [])[1]
+      (chunk.match(/data-(?:mediumthumb|image)="([^"]*)"/) ||
+        chunk.match(/(?:data-src|src)="(https:\/\/[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"/) ||
+        [])[1]
     );
     const preview = normalizeThumb(
       (chunk.match(/data-mediabook="([^"]*)"/) || [])[1]
@@ -158,69 +154,67 @@ async function searchPornhub(q, page) {
       views: null,
     });
   }
-  if (!out.length) {
-    const loose =
-      /href="(\/view_video\.php\?viewkey=([a-zA-Z0-9]+))"[^>]*>[\s\S]{0,500}?(?:data-src|src)="(https:\/\/[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"/gi;
-    while ((m = loose.exec(html)) && out.length < PAGE_SIZE) {
-      const vkey = m[2];
-      if (seen.has(vkey)) continue;
-      seen.add(vkey);
-      const thumb = normalizeThumb(m[3]);
-      if (!thumb) continue;
-      out.push({
-        id: "pornhub:" + vkey,
-        source: "pornhub",
-        title: "Pornhub " + vkey,
-        thumb,
-        preview: thumb,
-        url: joinUrl(site, m[1]),
-        embed: joinUrl(site, "/embed/" + vkey),
-        duration: null,
-        views: null,
-      });
+  return out;
+}
+
+async function searchPornhub(q, page) {
+  const searchBase = srcPornhubSearch();
+  const site = srcPornhubSite();
+  const out = [];
+  const seen = new Set();
+  // 过滤 Premium 后免费片变少：连抓最多 4 个源站页补满 PAGE_SIZE
+  const startPage = Math.max(1, page || 1);
+  for (let p = startPage; p < startPage + 4 && out.length < PAGE_SIZE; p++) {
+    const url =
+      searchBase +
+      (searchBase.includes("?") ? "&" : "?") +
+      new URLSearchParams({
+        search: q,
+        page: String(p),
+      }).toString();
+    const html = await fetchText(url, {
+      timeout: 15000,
+      headers: {
+        ...UA,
+        accept: "text/html",
+        referer: site + "/",
+      },
+    });
+    const batch = parsePornhubHtml(html, site, seen);
+    if (!batch.length) break;
+    for (const item of batch) {
+      out.push(item);
+      if (out.length >= PAGE_SIZE) break;
     }
   }
   return out;
 }
 
-async function searchXvideos(q, page) {
-  const searchBase = srcXvideosSearch();
-  const site = srcXvideosSite();
-  const sep = searchBase.includes("?") ? "&" : "?";
-  const url =
-    searchBase +
-    sep +
-    "k=" +
-    encodeURIComponent(q) +
-    "&p=" +
-    String(Math.max(0, (page || 1) - 1));
-  const html = await fetchText(url, {
-    timeout: 15000,
-    headers: {
-      ...UA,
-      accept: "text/html",
-      referer: site + "/",
-    },
-  });
-  const out = [];
-  const seen = new Set();
+function isXvideosPaid(chunk) {
+  const s = String(chunk || "");
+  return /xvideos\.red|href="https?:\/\/www\.xvideos\.red|icon-f-premium|is-premium|xv-flag-red|class="[^"]*premium|data-is-premium="1"/i.test(
+    s
+  );
+}
 
-  // 新版：id="video_<eid>" data-id="<numeric>" … data-src / data-pvv / title
+function parseXvideosHtml(html, site, seen) {
+  const out = [];
   const blockRe =
     /id="video_([^"]+)"([^>]*)>([\s\S]*?)(?=id="video_|id="footer"|<\/main>|$)/gi;
   let m;
-  while ((m = blockRe.exec(html)) && out.length < PAGE_SIZE) {
+  while ((m = blockRe.exec(html)) && out.length < PAGE_SIZE * 2) {
     const attrs = m[2] || "";
     const body = m[3] || "";
     const chunk = attrs + " " + body;
+    if (isXvideosPaid(chunk)) continue;
     const path = (chunk.match(/href="(\/video\.[^"]+)"/) || [])[1];
-    // embedframe 必须用 encoded id（路径 /video.<eid>/…），纯数字 data-id 常 404
     const eid =
       clean(m[1]) ||
       (path && (path.match(/^\/video\.([^/]+)/) || [])[1]) ||
       "";
-    if (!eid || seen.has(eid)) continue;
-    if (!path) continue;
+    if (!eid || seen.has(eid) || !path) continue;
+    // 付费站路径偶发混在结果里
+    if (/xvideos\.red/i.test(path)) continue;
     const thumb = normalizeThumb(
       (chunk.match(/data-src="(https:\/\/[^"]+)"/) ||
         chunk.match(/data-sfwthumb="(https:\/\/[^"]+)"/) ||
@@ -246,29 +240,66 @@ async function searchXvideos(q, page) {
       views: null,
     });
   }
+  return out;
+}
 
-  // 旧版兜底：纯数字 id="video_123"
-  if (!out.length) {
-    const legacy =
-      /id="video_(\d+)"[\s\S]*?href="(\/video\.([^/"]+)\/[^"]+)"[\s\S]*?(?:data-src|src)="(https:\/\/[^"]+)"[\s\S]{0,800}?(?:data-previewvideo="([^"]*)")?[\s\S]{0,500}?title="([^"]*)"/gi;
-    while ((m = legacy.exec(html)) && out.length < PAGE_SIZE) {
-      const eid = m[3] || m[1];
-      if (seen.has(eid)) continue;
-      seen.add(eid);
-      const thumb = normalizeThumb(m[4]);
-      const preview = normalizeThumb(m[5]);
-      if (!thumb && !preview) continue;
-      out.push({
-        id: "xvideos:" + eid,
-        source: "xvideos",
-        title: clean(m[6]) || "XVideos " + eid,
-        thumb: thumb || preview,
-        preview: preview || thumb,
-        url: joinUrl(site, m[2]),
-        embed: joinUrl(site, "/embedframe/" + eid),
-        duration: null,
-        views: null,
-      });
+async function searchXvideos(q, page) {
+  const searchBase = srcXvideosSearch();
+  const site = srcXvideosSite();
+  const out = [];
+  const seen = new Set();
+  const startPage = Math.max(1, page || 1);
+  for (let p = startPage; p < startPage + 3 && out.length < PAGE_SIZE; p++) {
+    const sep = searchBase.includes("?") ? "&" : "?";
+    const url =
+      searchBase +
+      sep +
+      "k=" +
+      encodeURIComponent(q) +
+      "&p=" +
+      String(Math.max(0, p - 1));
+    const html = await fetchText(url, {
+      timeout: 15000,
+      headers: {
+        ...UA,
+        accept: "text/html",
+        referer: site + "/",
+      },
+    });
+    const batch = parseXvideosHtml(html, site, seen);
+    if (!batch.length) {
+      // 旧版兜底仅第一页试一次
+      if (p === startPage) {
+        const legacy =
+          /id="video_(\d+)"[\s\S]*?href="(\/video\.([^/"]+)\/[^"]+)"[\s\S]*?(?:data-src|src)="(https:\/\/[^"]+)"[\s\S]{0,800}?(?:data-previewvideo="([^"]*)")?[\s\S]{0,500}?title="([^"]*)"/gi;
+        let m;
+        while ((m = legacy.exec(html)) && out.length < PAGE_SIZE) {
+          const eid = m[3] || m[1];
+          const chunk = m[0];
+          if (seen.has(eid) || isXvideosPaid(chunk)) continue;
+          seen.add(eid);
+          const thumb = normalizeThumb(m[4]);
+          const preview = normalizeThumb(m[5]);
+          if (!thumb && !preview) continue;
+          out.push({
+            id: "xvideos:" + eid,
+            source: "xvideos",
+            title: clean(m[6]) || "XVideos " + eid,
+            thumb: thumb || preview,
+            preview: preview || thumb,
+            url: joinUrl(site, m[2]),
+            embed: joinUrl(site, "/embedframe/" + eid),
+            duration: null,
+            views: null,
+          });
+        }
+      }
+      if (!out.length) break;
+      continue;
+    }
+    for (const item of batch) {
+      out.push(item);
+      if (out.length >= PAGE_SIZE) break;
     }
   }
   return out;

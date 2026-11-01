@@ -50,6 +50,30 @@ function epEmbedFromPage(page) {
   return srcEpornerSite().replace(/\/$/, "") + "/embed/" + m[1] + "/";
 }
 
+function pickHighestHlsVariant(masterUrl, masterText) {
+  const lines = String(masterText || "").split(/\r?\n/);
+  let best = null;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line.startsWith("#EXT-X-STREAM-INF:")) continue;
+    const res = (line.match(/RESOLUTION=(\d+)x(\d+)/i) || [])[2];
+    const name = (line.match(/NAME="([^"]+)"/i) || [])[1];
+    const height = Number(res) || Number((name || "").replace(/\D/g, "")) || 0;
+    const next = (lines[i + 1] || "").trim();
+    if (!next || next.startsWith("#")) continue;
+    let url = next;
+    if (!/^https?:/i.test(url)) {
+      try {
+        url = new URL(url, masterUrl).href;
+      } catch (_) {
+        continue;
+      }
+    }
+    if (!best || height > best.height) best = { url, height, name: name || height + "p" };
+  }
+  return best;
+}
+
 async function resolveXvideos(page) {
   const html = await fetchText(page, {
     timeout: 18000,
@@ -57,11 +81,39 @@ async function resolveXvideos(page) {
   });
   const high = (html.match(/setVideoUrlHigh\('([^']+)'\)/) || [])[1];
   const low = (html.match(/setVideoUrlLow\('([^']+)'\)/) || [])[1];
-  const hls = (html.match(/setVideoHLS\('([^']+)'\)/) || [])[1];
-  const stream = high || low || null;
+  const hlsMaster = (html.match(/setVideoHLS\('([^']+)'\)/) || [])[1];
+
+  // 渐进式 mp4 通常只有 240/360；HLS master 含 720/1080 — 默认选最高档
+  let hls = null;
+  let quality = null;
+  if (hlsMaster) {
+    try {
+      const masterText = await fetchText(hlsMaster, {
+        timeout: 12000,
+        headers: {
+          ...UA,
+          accept: "application/vnd.apple.mpegurl,application/x-mpegURL,*/*",
+          referer: srcXvideosSite() + "/",
+        },
+      });
+      const best = pickHighestHlsVariant(hlsMaster, masterText);
+      if (best) {
+        hls = best.url;
+        quality = best.name || best.height + "p";
+      } else {
+        hls = hlsMaster;
+      }
+    } catch (_) {
+      hls = hlsMaster;
+    }
+  }
+
+  // 优先 HLS 最高清；否则退回 High/Low mp4
+  const stream = hls || high || low || null;
   return {
     stream,
-    hls: hls || null,
+    hls: hls || hlsMaster || null,
+    quality,
     embed: xvEmbedFromPage(page),
   };
 }
@@ -131,7 +183,7 @@ export async function handleHumanityPlay(payload) {
   }
 
   try {
-    let resolved = { stream: null, hls: null, embed: embedIn || null };
+    let resolved = { stream: null, hls: null, quality: null, embed: embedIn || null };
     if (source === "xvideos" || /xvideos/i.test(page + embedIn)) {
       if (page) resolved = await resolveXvideos(page);
       else resolved.embed = embedIn;
@@ -141,7 +193,6 @@ export async function handleHumanityPlay(payload) {
     } else if (source === "eporner" || /eporner/i.test(page + embedIn)) {
       resolved = await resolveEporner(page, embedIn);
     } else if (page) {
-      // 未知源：尽量纠正 embed
       resolved.embed =
         embedIn || xvEmbedFromPage(page) || phEmbedFromPage(page) || epEmbedFromPage(page);
     }
@@ -156,6 +207,7 @@ export async function handleHumanityPlay(payload) {
       page: page || null,
       stream: resolved.stream || null,
       hls: resolved.hls || null,
+      quality: resolved.quality || null,
       embed: resolved.embed || null,
     };
   } catch (e) {
@@ -167,6 +219,7 @@ export async function handleHumanityPlay(payload) {
       page: page || null,
       stream: null,
       hls: null,
+      quality: null,
       embed: embedIn || xvEmbedFromPage(page) || phEmbedFromPage(page) || null,
       warning: String(e && e.message ? e.message : e),
     };

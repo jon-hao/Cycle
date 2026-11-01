@@ -98,10 +98,10 @@ export function srcXvideosSite() {
   return req("SRC_XVIDEOS_SITE");
 }
 
-/** Humanity 登录（明文仅存 Lambda Env） */
+/** @deprecated 账号已迁 DynamoDB auth#cred#*，保留空实现避免旧引用崩 */
 export function humanityEmail() {
-  return req("HUMANITY_EMAIL").toLowerCase();
+  throw new Error("HUMANITY_EMAIL removed — credentials live in DynamoDB");
 }
 export function humanityPassword() {
-  return req("HUMANITY_PASSWORD");
+  throw new Error("HUMANITY_PASSWORD removed — credentials live in DynamoDB");
 }

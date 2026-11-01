@@ -135,12 +135,15 @@ if sec.exists():
       continue
     k, _, v = line.partition("=")
     vars_[k.strip()] = v.strip().strip('"').strip("'")
-# also allow process env override
-for k in list(vars_.keys()) + ["HUMANITY_EMAIL", "HUMANITY_PASSWORD"]:
+# also allow process env override（账号已迁 DynamoDB，不再要求 HUMANITY_* 进 Lambda Env）
+for k in list(vars_.keys()):
   if os.environ.get(k):
     vars_[k] = os.environ[k]
-if "HUMANITY_EMAIL" not in vars_ or "HUMANITY_PASSWORD" not in vars_:
-  raise SystemExit("missing HUMANITY_EMAIL / HUMANITY_PASSWORD — put them in lambda/HApi/.env.secrets")
+# 若 secrets 里仍有 HUMANITY_*，不要注入 Lambda Env
+vars_.pop("HUMANITY_EMAIL", None)
+vars_.pop("HUMANITY_PASSWORD", None)
+vars_.pop("CYCLE_EMAIL", None)
+vars_.pop("CYCLE_PASSWORD", None)
 print(json.dumps({"Variables": vars_}))
 PY
 )"
@@ -251,3 +254,7 @@ pathlib.Path(path).write_text(
 print("wrote", path)
 PY
 fi
+
+# 账号写入 DynamoDB（Humanity 从 .env.secrets；Cycle 默认 capitalism4418@gmail.com）
+echo "seeding app credentials into DynamoDB..."
+(cd "$DIR" && node scripts/seed-auth.mjs)

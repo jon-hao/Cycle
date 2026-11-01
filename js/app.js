@@ -20,9 +20,15 @@ window.CycleState = {
   autoRefresh: false,
 };
 
-/** 只保留国家 / 语言 / 主题；清掉历史杂项 */
+/** 只保留国家 / 语言 / 主题 / 登录会话；清掉历史杂项 */
 (function scrubLocalStorage() {
-  const keep = new Set(["cycle-country", "cycle-lang", "cycle-theme"]);
+  const keep = new Set([
+    "cycle-country",
+    "cycle-lang",
+    "cycle-theme",
+    "cycle-token",
+    "cycle-email",
+  ]);
   try {
     const drop = [];
     for (let i = 0; i < localStorage.length; i++) {
@@ -172,6 +178,14 @@ window.CycleSelect = (function () {
 
 (function () {
   const els = {
+    loginView: document.getElementById("loginView"),
+    loginForm: document.getElementById("loginForm"),
+    loginEmail: document.getElementById("loginEmail"),
+    loginPassword: document.getElementById("loginPassword"),
+    loginBtn: document.getElementById("loginBtn"),
+    loginErr: document.getElementById("loginErr"),
+    appShell: document.getElementById("appShell"),
+    logoutBtn: document.getElementById("logoutBtn"),
     country: document.getElementById("countrySelect"),
     lang: document.getElementById("langSelect"),
     themeBtn: document.getElementById("themeBtn"),
@@ -190,6 +204,7 @@ window.CycleSelect = (function () {
   let langCtl = null;
   let refreshing = false;
   let autoTimer = null;
+  let appReady = false;
   // 金十快讯近实时；3 分钟兼顾新鲜度与 Lambda 免费额度（开开关约 480 次/页/天）
   const AUTO_MS = 3 * 60 * 1000;
 
@@ -500,12 +515,32 @@ window.CycleSelect = (function () {
     );
   }
 
-  async function init() {
-    applyTheme();
-    wire();
-    wireModelFab();
-    wireRefreshFab();
-    wirePullToRefresh();
+  function showLogin() {
+    if (els.loginView) els.loginView.hidden = false;
+    if (els.appShell) els.appShell.hidden = true;
+  }
+
+  function showApp() {
+    if (els.loginView) els.loginView.hidden = true;
+    if (els.appShell) els.appShell.hidden = false;
+  }
+
+  async function enterApp() {
+    showApp();
+    if (!appReady) {
+      applyTheme();
+      wire();
+      wireModelFab();
+      wireRefreshFab();
+      wirePullToRefresh();
+      if (els.logoutBtn) {
+        els.logoutBtn.addEventListener("click", async () => {
+          await window.CycleAPI.logout();
+          showLogin();
+        });
+      }
+      appReady = true;
+    }
     applyLang();
 
     if (window.CycleLLM && window.CycleLLM.resumeIfNeeded) {
@@ -527,10 +562,45 @@ window.CycleSelect = (function () {
     requestAnimationFrame(() => moveIndicator(false));
   }
 
+  async function init() {
+    applyTheme();
+    if (els.loginForm) {
+      els.loginForm.addEventListener("submit", async (ev) => {
+        ev.preventDefault();
+        if (!els.loginBtn) return;
+        els.loginErr.textContent = "";
+        els.loginBtn.disabled = true;
+        try {
+          await window.CycleAPI.login(
+            els.loginEmail.value.trim(),
+            els.loginPassword.value
+          );
+          await enterApp();
+        } catch (err) {
+          els.loginErr.textContent = String(err.message || err);
+        } finally {
+          els.loginBtn.disabled = false;
+        }
+      });
+    }
+
+    if (window.CycleAPI.getToken()) {
+      showApp();
+      const sess = await window.CycleAPI.check();
+      if (!sess) {
+        showLogin();
+        return;
+      }
+      await enterApp();
+      return;
+    }
+    showLogin();
+  }
+
   init().catch((err) => {
-    els.main.innerHTML =
-      '<div class="empty">Failed to load Cycle: ' +
-      String(err && err.message ? err.message : err) +
-      "</div>";
+    showLogin();
+    if (els.loginErr) {
+      els.loginErr.textContent = String(err && err.message ? err.message : err);
+    }
   });
 })();

@@ -1,11 +1,11 @@
 /**
- * HApi — 账号级共用 HTTP API（Cycle 及其他应用）。
+ * HApi — 账号级共用 HTTP API（Cycle / Humanity）。
  *
  * 约定：
  *   GET/POST Function URL
- *   flow   = news | macro | feargreed | calendar | search | quota | catalog | health
- *          | hauth | hsearch | hfav   （Humanity，app=humanity）
- *   app    = 租户/命名空间（影响 DynamoDB 缓存键，默认 public）
+ *   flow = news | macro | feargreed | calendar | search | quota | catalog | health
+ *        | hauth | hsearch | hfav | hplay
+ *   app  = cycle | humanity（除 hauth 登录外，所有 flow 必须带有效会话）
  *
  * CORS 仅由 Function URL 配置注入。
  */
@@ -21,6 +21,7 @@ import { handleHumanitySearch } from "./flows/humanitySearch.mjs";
 import { handleHumanityFavorites } from "./flows/humanityFavorites.mjs";
 import { handleHumanityPlay } from "./flows/humanityPlay.mjs";
 import { withQuota, quotaStatus } from "./quota.mjs";
+import { normalizeApp, requireAppSession } from "./lib/appAuth.mjs";
 
 const FLOWS = {
   news: handleNews,
@@ -33,9 +34,16 @@ const FLOWS = {
   health: handleHealth,
   quota: async () => quotaStatus(),
   hauth: handleHumanityAuth,
+  cauth: handleHumanityAuth,
   hsearch: handleHumanitySearch,
   hfav: handleHumanityFavorites,
   hplay: handleHumanityPlay,
+};
+
+/** 仅登录动作免鉴权；check/logout 仍需 token */
+const PUBLIC_FLOW_ACTIONS = {
+  hauth: new Set(["login"]),
+  cauth: new Set(["login"]),
 };
 
 function json(statusCode, obj) {
@@ -43,6 +51,7 @@ function json(statusCode, obj) {
     statusCode !== 200 ||
     (obj &&
       (obj.flow === "hauth" ||
+        obj.flow === "cauth" ||
         obj.flow === "hfav" ||
         obj.flow === "hsearch" ||
         obj.flow === "hplay"));
@@ -50,7 +59,7 @@ function json(statusCode, obj) {
     statusCode,
     headers: {
       "content-type": "application/json; charset=utf-8",
-      "cache-control": noStore ? "no-store" : "public, max-age=30",
+      "cache-control": noStore ? "no-store" : "private, no-store",
     },
     body: JSON.stringify(obj),
   };
@@ -95,6 +104,37 @@ function resolveFlow(event, payload) {
   return normalizeFlow(seg);
 }
 
+function inferApp(flow, payload) {
+  const explicit = normalizeApp(payload.app);
+  if (explicit) return explicit;
+  if (flow === "hauth" || flow === "cauth") {
+    return flow === "cauth" ? "cycle" : "humanity";
+  }
+  if (flow === "hsearch" || flow === "hfav" || flow === "hplay") return "humanity";
+  // Cycle 业务流默认 cycle
+  if (
+    flow === "news" ||
+    flow === "new" ||
+    flow === "search" ||
+    flow === "macro" ||
+    flow === "feargreed" ||
+    flow === "calendar" ||
+    flow === "catalog" ||
+    flow === "health" ||
+    flow === "quota"
+  ) {
+    return "cycle";
+  }
+  return "";
+}
+
+function isPublicCall(flow, payload) {
+  const allowed = PUBLIC_FLOW_ACTIONS[flow];
+  if (!allowed) return false;
+  const action = String(payload.action || "login").toLowerCase();
+  return allowed.has(action);
+}
+
 export async function handler(event) {
   const method =
     event?.requestContext?.http?.method || event?.httpMethod || "GET";
@@ -107,8 +147,7 @@ export async function handler(event) {
 
   const query = event?.queryStringParameters || {};
   const body = method === "POST" ? parseBody(event) : {};
-  const payload = Object.assign({ app: "public" }, query, body);
-  if (!payload.app) payload.app = "public";
+  const payload = Object.assign({}, query, body);
 
   const flow = resolveFlow(event, payload);
   const run = FLOWS[flow];
@@ -116,14 +155,12 @@ export async function handler(event) {
     return json(400, {
       error: "unknown flow",
       flow: flow || null,
-      hint: "GET ?flow=catalog",
+      hint: "POST flow=hauth action=login",
       flows: Object.keys(FLOWS).filter((k) => k !== "new"),
     });
   }
 
-  // catalog / health 不计入软配额重活，但仍记账（withQuota 统一）
   try {
-    // Humanity：Authorization 头透传给鉴权
     const headers = event?.headers || {};
     const authHeader =
       headers.authorization ||
@@ -132,6 +169,27 @@ export async function handler(event) {
     if (authHeader && !payload.authorization) {
       payload.authorization = authHeader;
     }
+
+    const app = inferApp(flow, payload);
+    if (app) payload.app = app;
+
+    if (!isPublicCall(flow, payload)) {
+      if (!app) {
+        return json(401, { flow, error: "app required", login: true });
+      }
+      const sess = await requireAppSession(payload, app);
+      if (!sess.ok) {
+        return json(sess.__status || 401, {
+          flow,
+          error: sess.error || "login required",
+          login: true,
+        });
+      }
+      payload.__session = sess;
+    }
+
+    // cauth → 强制 cycle
+    if (flow === "cauth") payload.app = "cycle";
 
     const gated = await withQuota(() => run(payload));
     if (!gated.ok) {

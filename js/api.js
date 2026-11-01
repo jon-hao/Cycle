@@ -541,6 +541,9 @@ window.CycleAPI = (function () {
     });
   }
 
+  const TOKEN_KEY = "cycle-token";
+  const EMAIL_KEY = "cycle-email";
+
   function cycleApiBase() {
     const cfg = window.CycleConfig || {};
     return String(cfg.apiBase || cfg.newsProxy || "").replace(/\/$/, "");
@@ -551,11 +554,43 @@ window.CycleAPI = (function () {
     return cfg.app || "cycle";
   }
 
+  function getToken() {
+    try {
+      return localStorage.getItem(TOKEN_KEY) || "";
+    } catch (_) {
+      return "";
+    }
+  }
+
+  function getEmail() {
+    try {
+      return localStorage.getItem(EMAIL_KEY) || "";
+    } catch (_) {
+      return "";
+    }
+  }
+
+  function setSession(token, email) {
+    try {
+      localStorage.setItem(TOKEN_KEY, token || "");
+      if (email) localStorage.setItem(EMAIL_KEY, email);
+    } catch (_) {}
+  }
+
+  function clearSession() {
+    try {
+      localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(EMAIL_KEY);
+    } catch (_) {}
+  }
+
   /** 统一走 HApi；失败抛错以便前端展示 */
   async function hapi(flow, params, opts) {
     const base = cycleApiBase();
     if (!base) return null;
     const q = Object.assign({ flow, app: cycleApp() }, params || {});
+    const token = getToken();
+    if (token && q.token == null) q.token = token;
     const qs = Object.keys(q)
       .filter((k) => q[k] != null && q[k] !== "")
       .map((k) => encodeURIComponent(k) + "=" + encodeURIComponent(q[k]))
@@ -564,18 +599,106 @@ window.CycleAPI = (function () {
     const timeout = (opts && opts.timeout) || 45000;
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), timeout);
+    const headers = { accept: "application/json" };
+    if (token) headers.authorization = "Bearer " + token;
     try {
-      const res = await fetch(url, { signal: ctrl.signal });
+      const res = await fetch(url, { signal: ctrl.signal, headers });
       clearTimeout(t);
-      if (!res.ok) throw new Error("HApi HTTP " + res.status);
-      const data = await res.json();
+      let data = null;
+      try {
+        data = await res.json();
+      } catch (_) {
+        data = null;
+      }
+      if (res.status === 401) {
+        clearSession();
+        const err = new Error((data && data.error) || "login required");
+        err.code = 401;
+        throw err;
+      }
+      if (!res.ok) throw new Error((data && data.error) || "HApi HTTP " + res.status);
       if (data && data.error) throw new Error(String(data.error));
       return data;
     } catch (e) {
       clearTimeout(t);
+      if (e && e.code === 401) throw e;
       if (e && e.name === "AbortError") throw new Error("HApi timeout");
       throw e;
     }
+  }
+
+  async function loginPost(email, password) {
+    const base = cycleApiBase();
+    if (!base) throw new Error("apiBase missing");
+    const res = await fetch(base, {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify({
+        flow: "hauth",
+        app: "cycle",
+        action: "login",
+        email,
+        password,
+      }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data || !data.ok || !data.token) {
+      throw new Error((data && data.error) || "login failed");
+    }
+    setSession(data.token, data.email || email);
+    return data;
+  }
+
+  async function check() {
+    const token = getToken();
+    if (!token) return null;
+    try {
+      const res = await fetch(cycleApiBase(), {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json",
+          authorization: "Bearer " + token,
+        },
+        body: JSON.stringify({
+          flow: "hauth",
+          app: "cycle",
+          action: "check",
+          token,
+        }),
+      });
+      const data = await res.json().catch(() => null);
+      if (res.status === 401) {
+        clearSession();
+        return null;
+      }
+      if (data && data.ok) return data;
+      return null;
+    } catch (_) {
+      return { ok: true, email: getEmail(), offline: true };
+    }
+  }
+
+  async function logout() {
+    const token = getToken();
+    try {
+      if (token) {
+        await fetch(cycleApiBase(), {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            authorization: "Bearer " + token,
+          },
+          body: JSON.stringify({
+            flow: "hauth",
+            app: "cycle",
+            action: "logout",
+            token,
+          }),
+        });
+      }
+    } catch (_) {}
+    clearSession();
   }
 
   let newsInflight = null;
@@ -725,5 +848,12 @@ window.CycleAPI = (function () {
     searchWeb,
     fetchCalendar,
     witchingDates,
+    getToken,
+    getEmail,
+    setSession,
+    clearSession,
+    login: loginPost,
+    check,
+    logout,
   };
 })();

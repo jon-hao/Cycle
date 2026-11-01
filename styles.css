@@ -1855,3 +1855,91 @@ button,
   margin: 0 0.35em;
   font-weight: 800;
 }
+
+/* —— Auth gate —— */
+.login-view {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background:
+    radial-gradient(800px 420px at 10% -10%, color-mix(in srgb, var(--brand) 22%, transparent), transparent 55%),
+    var(--bg);
+}
+.login-view[hidden] {
+  display: none !important;
+}
+.login-card {
+  width: min(400px, 100%);
+  display: grid;
+  gap: 12px;
+  padding: 28px 24px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  box-shadow: var(--shadow);
+}
+.login-brand {
+  margin: 0;
+  font-size: 1.8rem;
+  font-weight: 800;
+}
+.login-brand span {
+  color: var(--brand);
+}
+.login-muted {
+  margin: 0 0 4px;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+.login-card label {
+  display: grid;
+  gap: 6px;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+.login-card input {
+  width: 100%;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--ink);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font: inherit;
+}
+.login-btn {
+  border: 0;
+  border-radius: 8px;
+  padding: 11px 14px;
+  background: var(--brand);
+  color: #fff;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+.login-btn:disabled {
+  opacity: 0.7;
+  cursor: wait;
+}
+.login-err {
+  min-height: 1.2em;
+  margin: 0;
+  color: #c44;
+  font-size: 0.85rem;
+}
+.text-logout {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 6px 4px;
+}
+.text-logout:hover {
+  color: var(--ink);
+}
+.app-shell[hidden] {
+  display: none !important;
+}
