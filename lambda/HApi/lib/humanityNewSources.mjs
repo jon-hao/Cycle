@@ -157,36 +157,63 @@ function isMissavCode(code) {
   return true;
 }
 
+function missavAsset(code, kind) {
+  const c = String(code || "").toLowerCase();
+  if (!c) return null;
+  if (kind === "preview") return "https://fourhoi.com/" + c + "/preview.mp4";
+  if (kind === "cover") return "https://fourhoi.com/" + c + "/cover-n.jpg";
+  return "https://fourhoi.com/" + c + "/cover-t.jpg";
+}
+
 function parseMissavCards(html, site) {
   const out = [];
   const seen = new Set();
+  // 以 cover-t.jpg 为准（旧正则会先吃到 preview.mp4，导致封面全挂）
   const re =
-    /href="((?:https?:\/\/[^"]+)?\/(?:dm\d+\/)?en\/([a-z0-9]+(?:-[a-z0-9]+)+))"[\s\S]{0,2200}?(?:data-src|src)="(https:\/\/[^"]+)"[\s\S]{0,900}?alt="([^"]*)"/gi;
+    /https:\/\/fourhoi\.com\/([a-z0-9]+(?:-[a-z0-9]+)+)\/cover-t\.jpg/gi;
   let m;
   while ((m = re.exec(html)) && out.length < PAGE_SIZE) {
-    const code = m[2];
+    const code = m[1];
     if (!isMissavCode(code) || seen.has(code)) continue;
     seen.add(code);
-    const path = "/en/" + code;
-    const thumb = normalizeThumb(m[3]);
-    const title = clean(m[4] || code);
-    const around = html.slice(Math.max(0, m.index), m.index + 2600);
+    const around = html.slice(Math.max(0, m.index - 900), m.index + 900);
+    const title = clean(
+      (around.match(/alt="([^"]*)"/) || [])[1] || code
+    );
     const duration = formatDuration(
       (around.match(/bg-opacity-75">\s*([^<]+?)\s*</i) || [])[1]
     );
-    const preview = normalizeThumb(
-      (around.match(/data-src="(https:\/\/fourhoi\.com\/[^"]+preview\.mp4)"/i) ||
-        [])[1]
-    );
+    const thumb = missavAsset(code, "thumb");
+    const preview = missavAsset(code, "preview");
     out.push({
       id: "missav:" + code,
       source: "missav",
       title: title || code,
-      thumb: thumb || preview,
-      preview: preview || thumb,
-      url: joinUrl(site, path),
+      thumb,
+      preview,
+      url: joinUrl(site, "/en/" + code),
       embed: null,
       duration,
+      quality: null,
+    });
+  }
+  if (out.length) return out;
+  // 兜底：仅有番号链接时仍构造 fourhoi 资源
+  const loose =
+    /href="(?:https?:\/\/[^"]+)?\/(?:dm\d+\/)?en\/([a-z0-9]+(?:-[a-z0-9]+)+)"/gi;
+  while ((m = loose.exec(html)) && out.length < PAGE_SIZE) {
+    const code = m[1];
+    if (!isMissavCode(code) || seen.has(code)) continue;
+    seen.add(code);
+    out.push({
+      id: "missav:" + code,
+      source: "missav",
+      title: code,
+      thumb: missavAsset(code, "thumb"),
+      preview: missavAsset(code, "preview"),
+      url: joinUrl(site, "/en/" + code),
+      embed: null,
+      duration: null,
       quality: null,
     });
   }
@@ -286,57 +313,32 @@ export async function resolveMissav(page) {
   const quals = missavQualitiesFromHtml(html)
     .map((q) => ({ q, h: qualityHeight(q) }))
     .sort((a, b) => b.h - a.h);
-  // 优先探测；机房 IP 常拦 surrit 时仍把最高档 URL 交给浏览器播放
-  let fallback = null;
-  for (const { q, h } of quals) {
-    const url = "https://surrit.com/" + uuid + "/" + q + "/video.m3u8";
-    const label = h >= 2160 ? "4K" : h + "p";
-    if (!fallback) fallback = { stream: url, hls: url, quality: label, embed: null };
-    try {
-      const body = await fetchText(url, {
-        timeout: 8000,
-        headers: {
-          ...UA,
-          accept: "application/vnd.apple.mpegurl,application/x-mpegURL,*/*",
-          referer: site + "/",
-          origin: site,
-        },
-      });
-      if (body && body.includes("#EXTM3U")) {
-        return {
-          stream: url,
-          hls: url,
-          quality: label,
-          embed: null,
-        };
-      }
-    } catch (_) {}
-  }
-  return fallback || { stream: null, hls: null, quality: null, embed: null };
+  // 机房 IP 常被 surrit CF 拦截；仍返回直链，由前端经 hmedia（impit）同源代理播放
+  const best = quals[0];
+  const q = (best && best.q) || "1080p";
+  const h = (best && best.h) || qualityHeight(q);
+  const label = h >= 2160 ? "4K" : h ? h + "p" : null;
+  const url = "https://surrit.com/" + uuid + "/" + q + "/video.m3u8";
+  const master = "https://surrit.com/" + uuid + "/playlist.m3u8";
+  return {
+    stream: url,
+    hls: master,
+    quality: label,
+    embed: null,
+    proxy: true,
+  };
 }
 
 export function parseMissavRelated(html, site, selfCode) {
   const out = [];
   const seen = new Set([String(selfCode || "").toLowerCase()]);
-  const re =
-    /href="((?:https?:\/\/[^"]+)?\/(?:dm\d+\/)?en\/([a-z0-9]+(?:-[a-z0-9]+)+))"[\s\S]{0,1800}?(?:data-src|src)="(https:\/\/[^"]+)"[\s\S]{0,700}?alt="([^"]*)"/gi;
-  let m;
-  while ((m = re.exec(html)) && out.length < PAGE_SIZE) {
-    const code = m[2];
-    if (!isMissavCode(code) || seen.has(code.toLowerCase())) continue;
+  const items = parseMissavCards(html, site);
+  for (const it of items) {
+    const code = String(it.id || "").split(":")[1] || "";
+    if (!code || seen.has(code.toLowerCase())) continue;
     seen.add(code.toLowerCase());
-    const thumb = normalizeThumb(m[3]);
-    out.push({
-      id: "missav:" + code,
-      source: "missav",
-      title: clean(m[4] || code),
-      thumb,
-      preview: thumb,
-      url: joinUrl(site, "/en/" + code),
-      embed: null,
-      duration: null,
-      quality: null,
-    });
+    out.push(it);
+    if (out.length >= PAGE_SIZE) break;
   }
   return out;
 }

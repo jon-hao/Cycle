@@ -4,7 +4,7 @@
  * 约定：
  *   GET/POST Function URL
  *   flow = news | macro | feargreed | calendar | search | quota | catalog | health
- *        | hauth | hsearch | hfav | hplay | hrelated
+ *        | hauth | hsearch | hfav | hplay | hrelated | hmedia
  *   app  = cycle | humanity（除 hauth 登录外，所有 flow 必须带有效会话）
  *
  * CORS 仅由 Function URL 配置注入。
@@ -22,6 +22,7 @@ import { handleHumanityFavorites } from "./flows/humanityFavorites.mjs";
 import { handleHumanityPlay } from "./flows/humanityPlay.mjs";
 import { handleHumanityRelated } from "./flows/humanityRelated.mjs";
 import { handleHumanityMeta } from "./flows/humanityMeta.mjs";
+import { handleHumanityMedia } from "./lib/humanityMedia.mjs";
 import { withQuota, quotaStatus } from "./quota.mjs";
 import { normalizeApp, requireAppSession } from "./lib/appAuth.mjs";
 
@@ -42,6 +43,7 @@ const FLOWS = {
   hplay: handleHumanityPlay,
   hrelated: handleHumanityRelated,
   hmeta: handleHumanityMeta,
+  hmedia: handleHumanityMedia,
 };
 
 /** 仅登录 / 改密免鉴权；check/logout 仍需 token */
@@ -121,7 +123,8 @@ function inferApp(flow, payload) {
     flow === "hfav" ||
     flow === "hplay" ||
     flow === "hrelated" ||
-    flow === "hmeta"
+    flow === "hmeta" ||
+    flow === "hmedia"
   ) {
     return "humanity";
   }
@@ -140,6 +143,25 @@ function inferApp(flow, payload) {
     return "cycle";
   }
   return "";
+}
+
+function functionUrlBase(event) {
+  const headers = event?.headers || {};
+  const host =
+    headers["x-forwarded-host"] ||
+    headers["X-Forwarded-Host"] ||
+    headers.host ||
+    headers.Host;
+  if (!host) return "";
+  const proto =
+    headers["x-forwarded-proto"] ||
+    headers["X-Forwarded-Proto"] ||
+    "https";
+  return (
+    String(proto).split(",")[0].trim() +
+    "://" +
+    String(host).split(",")[0].trim()
+  );
 }
 
 function isPublicCall(flow, payload) {
@@ -204,6 +226,21 @@ export async function handler(event) {
 
     // cauth → 强制 cycle
     if (flow === "cauth") payload.app = "cycle";
+
+    // HLS 分片代理：不计配额，返回原始 body（可 base64）
+    if (flow === "hmedia") {
+      payload.__proxyBase = functionUrlBase(event);
+      const raw = await run(payload);
+      if (raw && raw.__raw) {
+        return {
+          statusCode: raw.statusCode || 200,
+          headers: raw.headers || { "content-type": "application/octet-stream" },
+          body: raw.body == null ? "" : raw.body,
+          isBase64Encoded: !!raw.isBase64Encoded,
+        };
+      }
+      return json(502, { flow, error: "media proxy failed" });
+    }
 
     const gated = await withQuota(() => run(payload));
     if (!gated.ok) {

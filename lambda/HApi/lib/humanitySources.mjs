@@ -20,10 +20,7 @@ export function listChannels() {
 }
 
 export function listPublicSources() {
-  return [
-    { value: "all", label: "All sources" },
-    ...CHANNELS.map((c) => ({ value: c.value, label: c.label })),
-  ];
+  return CHANNELS.map((c) => ({ value: c.value, label: c.label }));
 }
 
 /** 前端传来的单个 source（all|ch1|…|兼容旧 internal 名）→ 内部名 */

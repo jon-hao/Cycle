@@ -413,6 +413,7 @@ export async function handleHumanityPlay(payload) {
       hls: resolved.hls || null,
       quality: resolved.quality || null,
       embed: resolved.embed || null,
+      proxy: !!resolved.proxy,
     };
   } catch (e) {
     return {

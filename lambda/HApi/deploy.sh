@@ -78,7 +78,13 @@ aws iam put-role-policy \
   }" >/dev/null
 
 echo "npm install..."
-(cd "$DIR" && npm install --omit=dev --no-fund --no-audit >/dev/null)
+(
+  cd "$DIR"
+  npm install --omit=dev --no-fund --no-audit >/dev/null
+  # Lambda 为 amazon linux x86_64：从 macOS 打包时强制装上 linux gnu 原生绑定
+  IMPIT_VER="$(node -p "require('./node_modules/impit/package.json').version" 2>/dev/null || echo 0.14.8)"
+  npm install "impit-linux-x64-gnu@${IMPIT_VER}" --os=linux --cpu=x64 --libc=glibc --no-fund --no-audit >/dev/null || true
+)
 
 ZIP="$(mktemp -t HApi).zip"
 rm -f "$ZIP"
