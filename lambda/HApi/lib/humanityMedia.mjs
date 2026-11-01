@@ -11,7 +11,16 @@ let impitClient = null;
 
 function client() {
   if (!impitClient) {
-    impitClient = new Impit({ browser: "chrome" });
+    const proxyUrl =
+      process.env.MISSAV_PROXY ||
+      process.env.SRC_MISSAV_PROXY ||
+      process.env.HTTPS_PROXY ||
+      process.env.HTTP_PROXY ||
+      undefined;
+    impitClient = new Impit({
+      browser: "chrome",
+      ...(proxyUrl ? { proxyUrl } : {}),
+    });
   }
   return impitClient;
 }
