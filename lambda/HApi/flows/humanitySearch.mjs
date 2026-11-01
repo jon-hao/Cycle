@@ -141,9 +141,18 @@ function parsePornhubHtml(html, site, seen) {
       seen.add(vkey);
       continue;
     }
+    // 优先经典 ei.phncdn 静态 jpg（更稳），其次 data-image / src 上的 pix 签名图
     const thumb = normalizeThumb(
-      (body.match(/data-(?:mediumthumb|image)="([^"]*)"/) ||
-        body.match(/(?:data-src|src)="(https:\/\/[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"/) ||
+      (body.match(
+        /(https:\/\/ei\.phncdn\.com\/[^"'\s]+?\.(?:jpg|jpeg|png|webp)[^"'\s]*)/i
+      ) ||
+        body.match(/data-(?:mediumthumb|image)="([^"]*)"/) ||
+        body.match(
+          /(?:data-src|src)="(https:\/\/[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"/
+        ) ||
+        body.match(
+          /(?:data-src|src|data-image)="(https:\/\/pix[^"]+\/plain\/[^"]+)"/
+        ) ||
         [])[1]
     );
     const preview = normalizeThumb(
