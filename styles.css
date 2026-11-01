@@ -1956,6 +1956,11 @@ button,
   background: var(--card);
   box-shadow: var(--shadow);
 }
+/* .login-card { display:grid } 会压过原生 [hidden]，必须加 !important */
+.login-card[hidden],
+form.login-card[hidden] {
+  display: none !important;
+}
 .login-brand {
   margin: 0;
   font-size: 1.8rem;

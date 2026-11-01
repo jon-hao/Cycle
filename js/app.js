@@ -198,7 +198,6 @@ window.CycleSelect = (function () {
     country: document.getElementById("countrySelect"),
     lang: document.getElementById("langSelect"),
     themeBtn: document.getElementById("themeBtn"),
-    accountBtn: document.getElementById("accountBtn"),
     main: document.getElementById("main"),
     modal: document.getElementById("modal"),
     footer: document.getElementById("siteFooter"),
@@ -513,29 +512,6 @@ window.CycleSelect = (function () {
     }
   }
 
-  function openAccountSheet() {
-    const email = (window.CycleAPI.getEmail && window.CycleAPI.getEmail()) || "";
-    window.CycleUI.openModal(`
-      <div class="sheet-head">
-        <h2>${window.t("account")}</h2>
-        <button type="button" class="icon-btn" data-close aria-label="Close">×</button>
-      </div>
-      <div class="sheet-body account-sheet">
-        <p class="account-email">${email.replace(/</g, "&lt;")}</p>
-        <button type="button" class="text-btn account-logout" id="accountLogout">${window.t("logout")}</button>
-      </div>
-    `);
-    const logoutBtn = document.getElementById("accountLogout");
-    if (logoutBtn) {
-      logoutBtn.addEventListener("click", async () => {
-        await window.CycleAPI.logout();
-        window.CycleUI.closeModal();
-        showLoginCard();
-        showLogin();
-      });
-    }
-  }
-
   function wire() {
     countryCtl = window.CycleSelect.mount(
       els.country,
@@ -561,10 +537,6 @@ window.CycleSelect = (function () {
       localStorage.setItem("cycle-theme", window.CycleState.theme);
       applyTheme();
     });
-
-    if (els.accountBtn) {
-      els.accountBtn.addEventListener("click", openAccountSheet);
-    }
 
     document.querySelectorAll(".nav-btn").forEach((b) => {
       b.addEventListener("click", () => setPage(b.dataset.page));
