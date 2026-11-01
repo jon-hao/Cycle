@@ -13,10 +13,20 @@ import {
   srcXvideosSite,
 } from "../lib/sources.mjs";
 import {
-  toInternalSource,
+  toInternalSources,
+  toPublicSources,
+  wantsSource,
   publicizeItem,
   publicizeErrorMap,
 } from "../lib/humanitySources.mjs";
+import {
+  searchMissav,
+  browseMissav,
+  searchXnxx,
+  browseXnxx,
+  searchHanime,
+  browseHanime,
+} from "../lib/humanityNewSources.mjs";
 
 const UA = {
   "user-agent":
@@ -463,33 +473,28 @@ export async function handleHumanitySearch(payload) {
 
   const q = String(payload.q || payload.query || "").trim();
   const mode = q ? "search" : "recommend";
-  const source = toInternalSource(payload.source || "all");
-  if (!source) {
+  const sources = toInternalSources(payload.source || "all");
+  if (!sources.length) {
     return { flow: "hsearch", ok: false, __status: 400, error: "unknown source" };
   }
   const page = Math.max(1, Number(payload.page) || 1);
+  const want = (name) => wantsSource(sources, name);
 
   const jobs = [];
   if (mode === "recommend") {
-    if (source === "all" || source === "eporner") {
-      jobs.push(safe("eporner", () => browseEporner(page)));
-    }
-    if (source === "all" || source === "pornhub") {
-      jobs.push(safe("pornhub", () => browsePornhub(page)));
-    }
-    if (source === "all" || source === "xvideos") {
-      jobs.push(safe("xvideos", () => browseXvideos(page)));
-    }
+    if (want("eporner")) jobs.push(safe("eporner", () => browseEporner(page)));
+    if (want("pornhub")) jobs.push(safe("pornhub", () => browsePornhub(page)));
+    if (want("xvideos")) jobs.push(safe("xvideos", () => browseXvideos(page)));
+    if (want("missav")) jobs.push(safe("missav", () => browseMissav(page)));
+    if (want("xnxx")) jobs.push(safe("xnxx", () => browseXnxx(page)));
+    if (want("hanime1")) jobs.push(safe("hanime1", () => browseHanime(page)));
   } else {
-    if (source === "all" || source === "eporner") {
-      jobs.push(safe("eporner", () => searchEporner(q, page)));
-    }
-    if (source === "all" || source === "pornhub") {
-      jobs.push(safe("pornhub", () => searchPornhub(q, page)));
-    }
-    if (source === "all" || source === "xvideos") {
-      jobs.push(safe("xvideos", () => searchXvideos(q, page)));
-    }
+    if (want("eporner")) jobs.push(safe("eporner", () => searchEporner(q, page)));
+    if (want("pornhub")) jobs.push(safe("pornhub", () => searchPornhub(q, page)));
+    if (want("xvideos")) jobs.push(safe("xvideos", () => searchXvideos(q, page)));
+    if (want("missav")) jobs.push(safe("missav", () => searchMissav(q, page)));
+    if (want("xnxx")) jobs.push(safe("xnxx", () => searchXnxx(q, page)));
+    if (want("hanime1")) jobs.push(safe("hanime1", () => searchHanime(q, page)));
   }
   if (!jobs.length) {
     return { flow: "hsearch", ok: false, __status: 400, error: "unknown source" };
@@ -501,13 +506,10 @@ export async function handleHumanitySearch(payload) {
     Object.fromEntries(parts.filter((p) => p.error).map((p) => [p.source, p.error]))
   );
   const maxPerSource = Math.max(0, ...parts.map((p) => (p.items || []).length));
-  const hasMore =
-    source === "all"
-      ? parts.some((p) => (p.items || []).length >= PAGE_SIZE)
-      : maxPerSource >= PAGE_SIZE;
-
-  const pubSource =
-    source === "all" ? "all" : publicizeItem({ source }).source;
+  const multi = sources.includes("all") || sources.length > 1;
+  const hasMore = multi
+    ? parts.some((p) => (p.items || []).length >= PAGE_SIZE)
+    : maxPerSource >= PAGE_SIZE;
 
   return {
     flow: "hsearch",
@@ -515,7 +517,7 @@ export async function handleHumanitySearch(payload) {
     app: "humanity",
     mode,
     q,
-    source: pubSource,
+    source: toPublicSources(sources),
     page,
     pageSize: PAGE_SIZE,
     hasMore,

@@ -14,6 +14,11 @@ import {
   publicizeItem,
   toPublicChannel,
 } from "../lib/humanitySources.mjs";
+import {
+  relatedMissav,
+  relatedXnxx,
+  relatedHanime,
+} from "../lib/humanityNewSources.mjs";
 
 const UA = {
   "user-agent":
@@ -100,6 +105,9 @@ function guessSource(url) {
   if (u.includes("xvideos")) return "xvideos";
   if (u.includes("pornhub")) return "pornhub";
   if (u.includes("eporner")) return "eporner";
+  if (u.includes("missav")) return "missav";
+  if (u.includes("xnxx")) return "xnxx";
+  if (u.includes("hanime1") || u.includes("hanime")) return "hanime1";
   return "";
 }
 
@@ -283,6 +291,12 @@ export async function handleHumanityRelated(payload) {
         headers: { ...UA, accept: "text/html", referer: srcEpornerSite() + "/" },
       });
       items = parseEpornerRelated(html, srcEpornerSite());
+    } else if (source === "missav" || /missav/i.test(page)) {
+      items = await relatedMissav(page);
+    } else if (source === "xnxx" || /xnxx/i.test(page)) {
+      items = await relatedXnxx(page);
+    } else if (source === "hanime1" || /hanime1|hanime/i.test(page)) {
+      items = await relatedHanime(page);
     }
 
     return {

@@ -11,6 +11,11 @@ import {
   srcXvideosSite,
 } from "../lib/sources.mjs";
 import { toInternalSource, toPublicChannel } from "../lib/humanitySources.mjs";
+import {
+  resolveMissav,
+  resolveXnxx,
+  resolveHanime,
+} from "../lib/humanityNewSources.mjs";
 
 const UA = {
   "user-agent":
@@ -30,6 +35,9 @@ function guessSource(url) {
   if (u.includes("xvideos")) return "xvideos";
   if (u.includes("pornhub")) return "pornhub";
   if (u.includes("eporner")) return "eporner";
+  if (u.includes("missav")) return "missav";
+  if (u.includes("xnxx")) return "xnxx";
+  if (u.includes("hanime1") || u.includes("hanime")) return "hanime1";
   return "";
 }
 
@@ -376,6 +384,18 @@ export async function handleHumanityPlay(payload) {
         quality: null,
         embed: embedIn || epEmbedFromPage(page),
       };
+    } else if (source === "missav" || /missav/i.test(page + embedIn)) {
+      if (page) resolved = await resolveMissav(page);
+      else resolved.embed = embedIn;
+    } else if (source === "xnxx" || /xnxx/i.test(page + embedIn)) {
+      if (page) resolved = await resolveXnxx(page);
+      else resolved.embed = embedIn;
+    } else if (
+      source === "hanime1" ||
+      /hanime1|hanime/i.test(page + embedIn)
+    ) {
+      if (page) resolved = await resolveHanime(page);
+      else resolved.embed = embedIn;
     } else if (page) {
       resolved.embed =
         embedIn || xvEmbedFromPage(page) || phEmbedFromPage(page) || epEmbedFromPage(page);

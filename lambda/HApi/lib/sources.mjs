@@ -97,6 +97,24 @@ export function srcXvideosSearch() {
 export function srcXvideosSite() {
   return req("SRC_XVIDEOS_SITE");
 }
+export function srcMissavSite() {
+  return req("SRC_MISSAV_SITE");
+}
+export function srcMissavSearch() {
+  return req("SRC_MISSAV_SEARCH");
+}
+export function srcXnxxSite() {
+  return req("SRC_XNXX_SITE");
+}
+export function srcXnxxSearch() {
+  return req("SRC_XNXX_SEARCH");
+}
+export function srcHanimeSite() {
+  return req("SRC_HANIME_SITE");
+}
+export function srcHanimeSearch() {
+  return req("SRC_HANIME_SEARCH");
+}
 
 /** @deprecated 账号已迁 DynamoDB auth#cred#*，保留空实现避免旧引用崩 */
 export function humanityEmail() {

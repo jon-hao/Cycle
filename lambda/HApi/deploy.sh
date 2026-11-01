@@ -125,6 +125,12 @@ vars_ = {
   "SRC_PORNHUB_SITE": "https://www.pornhub.com",
   "SRC_XVIDEOS_SEARCH": "https://www.xvideos.com/",
   "SRC_XVIDEOS_SITE": "https://www.xvideos.com",
+  "SRC_MISSAV_SITE": "https://missav.live",
+  "SRC_MISSAV_SEARCH": "https://missav.live/en/search/",
+  "SRC_XNXX_SITE": "https://www.xnxx.com",
+  "SRC_XNXX_SEARCH": "https://www.xnxx.com/search/",
+  "SRC_HANIME_SITE": "https://hanime1.me",
+  "SRC_HANIME_SEARCH": "https://hanime1.me/search",
 }
 # overlay secrets / overrides（不进 git）
 sec = dir_ / ".env.secrets"
