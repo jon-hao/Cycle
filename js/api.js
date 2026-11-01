@@ -701,29 +701,6 @@ window.CycleAPI = (function () {
     clearSession();
   }
 
-  async function changePassword(email, currentPassword, newPassword) {
-    const res = await fetch(cycleApiBase(), {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        accept: "application/json",
-      },
-      body: JSON.stringify({
-        flow: "hauth",
-        app: "cycle",
-        action: "password",
-        email,
-        currentPassword,
-        newPassword,
-      }),
-    });
-    const data = await res.json().catch(() => null);
-    if (!res.ok || !data || !data.ok) {
-      throw new Error((data && data.error) || "password change failed");
-    }
-    return data;
-  }
-
   let newsInflight = null;
   let newsMemo = { at: 0, items: null };
 
@@ -878,6 +855,5 @@ window.CycleAPI = (function () {
     login: loginPost,
     check,
     logout,
-    changePassword,
   };
 })();

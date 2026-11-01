@@ -184,21 +184,11 @@ window.CycleSelect = (function () {
     loginPassword: document.getElementById("loginPassword"),
     loginBtn: document.getElementById("loginBtn"),
     loginErr: document.getElementById("loginErr"),
-    showPwdForm: document.getElementById("showPwdForm"),
-    pwdForm: document.getElementById("pwdForm"),
-    pwdEmail: document.getElementById("pwdEmail"),
-    pwdCurrent: document.getElementById("pwdCurrent"),
-    pwdNew: document.getElementById("pwdNew"),
-    pwdConfirm: document.getElementById("pwdConfirm"),
-    pwdSave: document.getElementById("pwdSave"),
-    pwdErr: document.getElementById("pwdErr"),
-    backToLogin: document.getElementById("backToLogin"),
     loginLang: document.getElementById("loginLangSelect"),
     appShell: document.getElementById("appShell"),
     country: document.getElementById("countrySelect"),
     lang: document.getElementById("langSelect"),
     themeBtn: document.getElementById("themeBtn"),
-    accountBtn: document.getElementById("accountBtn"),
     main: document.getElementById("main"),
     modal: document.getElementById("modal"),
     footer: document.getElementById("siteFooter"),
@@ -255,11 +245,6 @@ window.CycleSelect = (function () {
       lang === "zh-TW" ? "zh-TW" : lang === "en" ? "en" : "zh-CN";
     document.querySelectorAll("[data-i18n]").forEach((node) => {
       node.textContent = window.t(node.getAttribute("data-i18n"));
-    });
-    document.querySelectorAll("[data-i18n-title]").forEach((node) => {
-      const title = window.t(node.getAttribute("data-i18n-title"));
-      node.title = title;
-      node.setAttribute("aria-label", title);
     });
     if (countryCtl) {
       countryCtl.refresh(countryOptions(), window.CycleState.country);
@@ -476,66 +461,6 @@ window.CycleSelect = (function () {
     renderPage(true, { soft: true });
   }
 
-  function wirePwdToggles(root) {
-    (root || document).querySelectorAll("[data-pwd-toggle]").forEach((btn) => {
-      if (btn.dataset.wired) return;
-      btn.dataset.wired = "1";
-      btn.addEventListener("click", () => {
-        const wrap = btn.closest(".pwd-wrap");
-        const input = wrap && wrap.querySelector("input");
-        if (!input) return;
-        const show = input.type === "password";
-        input.type = show ? "text" : "password";
-        const eyeShow = btn.querySelector(".pwd-eye-show");
-        const eyeHide = btn.querySelector(".pwd-eye-hide");
-        if (eyeShow) eyeShow.hidden = show;
-        if (eyeHide) eyeHide.hidden = !show;
-        btn.setAttribute(
-          "aria-label",
-          show ? window.t("hidePassword") : window.t("showPassword")
-        );
-      });
-    });
-  }
-
-  function showLoginCard() {
-    if (els.loginForm) els.loginForm.hidden = false;
-    if (els.pwdForm) els.pwdForm.hidden = true;
-    if (els.pwdErr) els.pwdErr.textContent = "";
-  }
-
-  function showPwdCard() {
-    if (els.loginForm) els.loginForm.hidden = true;
-    if (els.pwdForm) els.pwdForm.hidden = false;
-    if (els.loginErr) els.loginErr.textContent = "";
-    if (els.pwdEmail && els.loginEmail && !els.pwdEmail.value) {
-      els.pwdEmail.value = els.loginEmail.value;
-    }
-  }
-
-  function openAccountSheet() {
-    const email = (window.CycleAPI.getEmail && window.CycleAPI.getEmail()) || "";
-    window.CycleUI.openModal(`
-      <div class="sheet-head">
-        <h2>${window.t("account")}</h2>
-        <button type="button" class="icon-btn" data-close aria-label="Close">×</button>
-      </div>
-      <div class="sheet-body account-sheet">
-        <p class="account-email">${email.replace(/</g, "&lt;")}</p>
-        <button type="button" class="text-btn account-logout" id="accountLogout">${window.t("logout")}</button>
-      </div>
-    `);
-    const logoutBtn = document.getElementById("accountLogout");
-    if (logoutBtn) {
-      logoutBtn.addEventListener("click", async () => {
-        await window.CycleAPI.logout();
-        window.CycleUI.closeModal();
-        showLoginCard();
-        showLogin();
-      });
-    }
-  }
-
   function wire() {
     countryCtl = window.CycleSelect.mount(
       els.country,
@@ -561,10 +486,6 @@ window.CycleSelect = (function () {
       localStorage.setItem("cycle-theme", window.CycleState.theme);
       applyTheme();
     });
-
-    if (els.accountBtn) {
-      els.accountBtn.addEventListener("click", openAccountSheet);
-    }
 
     document.querySelectorAll(".nav-btn").forEach((b) => {
       b.addEventListener("click", () => setPage(b.dataset.page));
@@ -648,7 +569,6 @@ window.CycleSelect = (function () {
 
   async function init() {
     applyTheme();
-    wirePwdToggles(document);
     if (els.loginLang) {
       loginLangCtl = window.CycleSelect.mount(
         els.loginLang,
@@ -658,14 +578,6 @@ window.CycleSelect = (function () {
       );
     }
     applyLang();
-    showLoginCard();
-
-    if (els.showPwdForm) {
-      els.showPwdForm.addEventListener("click", showPwdCard);
-    }
-    if (els.backToLogin) {
-      els.backToLogin.addEventListener("click", showLoginCard);
-    }
 
     if (els.loginForm) {
       els.loginForm.addEventListener("submit", async (ev) => {
@@ -683,40 +595,6 @@ window.CycleSelect = (function () {
           els.loginErr.textContent = String(err.message || err);
         } finally {
           els.loginBtn.disabled = false;
-        }
-      });
-    }
-
-    if (els.pwdForm) {
-      els.pwdForm.addEventListener("submit", async (ev) => {
-        ev.preventDefault();
-        if (!els.pwdSave) return;
-        els.pwdErr.textContent = "";
-        const email = els.pwdEmail.value.trim();
-        const cur = els.pwdCurrent.value;
-        const next = els.pwdNew.value;
-        const conf = els.pwdConfirm.value;
-        if (next.length < 8) {
-          els.pwdErr.textContent = window.t("passwordTooShort");
-          return;
-        }
-        if (next !== conf) {
-          els.pwdErr.textContent = window.t("passwordMismatch");
-          return;
-        }
-        els.pwdSave.disabled = true;
-        try {
-          await window.CycleAPI.changePassword(email, cur, next);
-          els.pwdErr.textContent = window.t("passwordChanged");
-          els.pwdCurrent.value = "";
-          els.pwdNew.value = "";
-          els.pwdConfirm.value = "";
-          if (els.loginEmail) els.loginEmail.value = email;
-          setTimeout(showLoginCard, 800);
-        } catch (err) {
-          els.pwdErr.textContent = String(err.message || err);
-        } finally {
-          els.pwdSave.disabled = false;
         }
       });
     }
