@@ -42,10 +42,10 @@ const FLOWS = {
   hmeta: handleHumanityMeta,
 };
 
-/** 仅登录动作免鉴权；check/logout 仍需 token */
+/** 仅登录 / 改密免鉴权；check/logout 仍需 token */
 const PUBLIC_FLOW_ACTIONS = {
-  hauth: new Set(["login"]),
-  cauth: new Set(["login"]),
+  hauth: new Set(["login", "password", "changepassword"]),
+  cauth: new Set(["login", "password", "changepassword"]),
 };
 
 function json(statusCode, obj) {

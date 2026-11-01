@@ -701,32 +701,23 @@ window.CycleAPI = (function () {
     clearSession();
   }
 
-  async function changePassword(currentPassword, newPassword) {
-    const token = getToken();
-    if (!token) throw new Error("login required");
+  async function changePassword(email, currentPassword, newPassword) {
     const res = await fetch(cycleApiBase(), {
       method: "POST",
       headers: {
         "content-type": "application/json",
         accept: "application/json",
-        authorization: "Bearer " + token,
       },
       body: JSON.stringify({
         flow: "hauth",
         app: "cycle",
         action: "password",
-        token,
+        email,
         currentPassword,
         newPassword,
       }),
     });
     const data = await res.json().catch(() => null);
-    if (res.status === 401) {
-      clearSession();
-      const err = new Error((data && data.error) || "login required");
-      err.code = 401;
-      throw err;
-    }
     if (!res.ok || !data || !data.ok) {
       throw new Error((data && data.error) || "password change failed");
     }

@@ -167,6 +167,9 @@ window.CycleI18n = {
     passwordMismatch: "两次新密码不一致",
     passwordTooShort: "新密码至少 8 位",
     logout: "退出登录",
+    backToLogin: "返回登录",
+    showPassword: "显示密码",
+    hidePassword: "隐藏密码",
   },
   "zh-TW": {
     appName: "Cycle",
@@ -336,6 +339,9 @@ window.CycleI18n = {
     passwordMismatch: "兩次新密碼不一致",
     passwordTooShort: "新密碼至少 8 位",
     logout: "登出",
+    backToLogin: "返回登入",
+    showPassword: "顯示密碼",
+    hidePassword: "隱藏密碼",
   },
   en: {
     appName: "Cycle",
@@ -505,6 +511,9 @@ window.CycleI18n = {
     passwordMismatch: "New passwords do not match",
     passwordTooShort: "New password must be at least 8 characters",
     logout: "Log out",
+    backToLogin: "Back to sign in",
+    showPassword: "Show password",
+    hidePassword: "Hide password",
   },
 };
 

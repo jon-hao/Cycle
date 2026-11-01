@@ -39,18 +39,22 @@ export async function handleHumanityAuth(payload) {
   }
 
   if (action === "password" || action === "changepassword") {
-    const sess = await requireAppSession(payload, app);
-    if (!sess.ok) return sess;
+    // 登录页改密：email + 旧密码即可，无需会话
+    let email = String(payload.email || "").trim().toLowerCase();
+    if (!email) {
+      const sess = await requireAppSession(payload, app);
+      if (sess.ok) email = sess.email;
+    }
     const current = String(
       payload.currentPassword || payload.oldPassword || ""
     );
-    const next = String(payload.newPassword || payload.password || "");
-    if (!current || !next) {
+    const next = String(payload.newPassword || "");
+    if (!email || !current || !next) {
       return {
         flow: "hauth",
         ok: false,
         __status: 400,
-        error: "current and new password required",
+        error: "email, current and new password required",
       };
     }
     if (next.length < 8) {
@@ -69,17 +73,17 @@ export async function handleHumanityAuth(payload) {
         error: "password unchanged",
       };
     }
-    const cred = await getCredential(app, sess.email);
+    const cred = await getCredential(app, email);
     if (!cred || !verifyPassword(current, cred)) {
       return {
         flow: "hauth",
         ok: false,
         __status: 400,
-        error: "invalid current password",
+        error: "invalid credentials",
       };
     }
-    await putCredential(app, sess.email, next);
-    return { flow: "hauth", ok: true, changed: true, app, email: sess.email };
+    await putCredential(app, email, next);
+    return { flow: "hauth", ok: true, changed: true, app, email };
   }
 
   const email = String(payload.email || "").trim().toLowerCase();
