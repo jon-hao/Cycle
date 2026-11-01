@@ -1,22 +1,17 @@
-/** Cycle Agent 对话弹窗（localStorage 持久化） */
+/** Cycle Agent 对话弹窗（仅内存，不写 localStorage） */
 window.CycleAgent = (function () {
-  const STORE_KEY = "cycle-agent-chat";
+  let memMsgs = [];
 
   function load() {
-    try {
-      const raw = JSON.parse(localStorage.getItem(STORE_KEY) || "[]");
-      return Array.isArray(raw) ? raw : [];
-    } catch (_) {
-      return [];
-    }
+    return memMsgs.slice();
   }
 
   function save(msgs) {
-    localStorage.setItem(STORE_KEY, JSON.stringify(msgs.slice(-80)));
+    memMsgs = (msgs || []).slice(-80);
   }
 
   function clear() {
-    localStorage.removeItem(STORE_KEY);
+    memMsgs = [];
   }
 
   function escapeHtml(s) {

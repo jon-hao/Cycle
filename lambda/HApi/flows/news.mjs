@@ -112,9 +112,9 @@ export function mapFlashes(rows) {
     if (isDigestNoise(title, content)) continue;
     rank += 1;
     const id = String(row.item_id || flash.id || title);
-    const link =
-      (body.source_link && /^https?:/i.test(body.source_link) && body.source_link) ||
-      "https://flash.jin10.com/detail/" + id;
+    const originLink =
+      body.source_link && /^https?:/i.test(body.source_link) ? body.source_link : null;
+    const jin10Link = "https://flash.jin10.com/detail/" + id;
     const text = title + " " + content;
     const geo = guessNewsCountry(text);
     out.push({
@@ -124,7 +124,11 @@ export function mapFlashes(rows) {
       summary: content,
       content,
       time: toISO(flash.time),
-      link,
+      sourceName: cleanText(body.source) || null,
+      originLink,
+      jin10Link,
+      // 阅读原文优先源头媒体；无源头时回退金十详情
+      link: originLink || jin10Link,
       important: true,
       countryGuess: geo.country,
       countryConfidence: geo.confidence,
@@ -132,6 +136,88 @@ export function mapFlashes(rows) {
     });
   }
   return out;
+}
+
+function unescapeJin(s) {
+  return String(s || "")
+    .replace(/\\u002F/g, "/")
+    .replace(/\\u0026/g, "&")
+    .replace(/\\u003D/g, "=")
+    .replace(/\\u003F/g, "?")
+    .replace(/\\"/g, '"')
+    .replace(/\\\\/g, "\\");
+}
+
+/** 从金十详情页 SSR __NUXT__ 抽出标题/正文/源头链接 */
+export function parseDetailHtml(html) {
+  const raw = String(html || "");
+  const m = raw.match(
+    /data:\{content:"((?:\\.|[^"\\])*)"[\s\S]*?source:"((?:\\.|[^"\\])*)",source_link:"((?:\\.|[^"\\])*)",title:"((?:\\.|[^"\\])*)"/
+  );
+  if (!m) {
+    const desc = raw.match(
+      /name="description"\s+content="([^"]*)"/i
+    );
+    if (!desc) return null;
+    const { title, content } = parseTitleContent({ content: desc[1] });
+    return { title, content, source: null, source_link: null };
+  }
+  return {
+    content: cleanText(unescapeJin(m[1])),
+    source: cleanText(unescapeJin(m[2])) || null,
+    source_link: unescapeJin(m[3]) || null,
+    title: cleanText(unescapeJin(m[4])),
+  };
+}
+
+/**
+ * 同一次 Lambda 内并行打开详情页补全（不计额外 Lambda 调用）。
+ * 限流：最多 24 条、并发 6、单页 4.5s，避免触顶超时/内存。
+ */
+async function enrichWithDetails(items) {
+  const list = Array.isArray(items) ? items.slice(0, 24) : [];
+  if (!list.length) return list;
+  const UA =
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+  let i = 0;
+  async function worker() {
+    while (i < list.length) {
+      const idx = i++;
+      const item = list[idx];
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 4500);
+      try {
+        const res = await fetch(item.jin10Link || "https://flash.jin10.com/detail/" + item.id, {
+          signal: ctrl.signal,
+          headers: {
+            accept: "text/html",
+            "user-agent": UA,
+            referer: "https://flash.jin10.com/",
+          },
+        });
+        if (!res.ok) continue;
+        const parsed = parseDetailHtml(await res.text());
+        if (!parsed) continue;
+        if (parsed.title) item.title = parsed.title;
+        if (parsed.content) {
+          item.content = parsed.content;
+          item.summary = parsed.content;
+        }
+        if (parsed.source) item.sourceName = parsed.source;
+        if (parsed.source_link && /^https?:/i.test(parsed.source_link)) {
+          item.originLink = parsed.source_link;
+          item.link = parsed.source_link;
+        }
+      } catch (_) {
+        /* 详情失败保留 list 字段 */
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+  }
+  const n = Math.min(6, list.length);
+  await Promise.all(Array.from({ length: n }, () => worker()));
+  return list;
 }
 
 /** flash-api 备用：重要快讯（鉴权头不同） */
@@ -196,13 +282,14 @@ async function fetchUpstreamOnce(auth) {
     }
     const items = mapFlashes(data.data);
     if (!items.length) throw new Error("upstream empty");
+    const enriched = await enrichWithDetails(items);
     return {
       flow: "news",
       source: "jin10",
       fetchedAt: new Date().toISOString(),
       appId: auth.appId,
       version: auth.version,
-      items,
+      items: enriched,
     };
   } finally {
     clearTimeout(timer);
@@ -232,11 +319,17 @@ async function fetchFlashApiFallback() {
     const data = await res.json();
     const items = mapFlashApiList(data && data.data);
     if (!items.length) throw new Error("flash-api empty");
+    // flash-api 条目补上 jin10Link，便于同请求内拉详情/源头
+    items.forEach((it) => {
+      if (!it.jin10Link) it.jin10Link = "https://flash.jin10.com/detail/" + it.id;
+      if (!it.link) it.link = it.jin10Link;
+    });
+    const enriched = await enrichWithDetails(items);
     return {
       flow: "news",
       source: "jin10-flash-api",
       fetchedAt: new Date().toISOString(),
-      items,
+      items: enriched,
     };
   } finally {
     clearTimeout(timer);

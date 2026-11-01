@@ -4,6 +4,8 @@ window.CyclePages.calendar = (function () {
   let view = "day";
   let cursor = startOfDay(new Date());
   let pickerCursor = new Date();
+  let mem = null;
+  let renderSeq = 0;
 
   function startOfDay(d) {
     const x = new Date(d);
@@ -252,7 +254,11 @@ window.CyclePages.calendar = (function () {
     bindPicker();
   }
 
-  async function render(root) {
+  async function render(root, opts) {
+    const soft = opts && opts.soft;
+    const force = opts && opts.force;
+    const seq = ++renderSeq;
+
     async function paint() {
       let from;
       let to;
@@ -287,33 +293,77 @@ window.CyclePages.calendar = (function () {
         </section>
       `;
 
-      let events =
-        (await window.CycleAPI.fetchCalendar(
-          from.toISOString(),
-          to.toISOString(),
-          window.CycleState.country
-        )) || [];
+      const country = window.CycleState.country;
+      const memKey =
+        from.toISOString().slice(0, 10) +
+        "|" +
+        to.toISOString().slice(0, 10) +
+        "|" +
+        country +
+        "|" +
+        view;
 
-      if (window.CycleState.country === "US") {
-        window.CycleAPI.witchingDates(cursor.getFullYear()).forEach((d) => {
-          const dt = new Date(d + "T13:00:00");
-          if (dt >= from && dt < to) {
-            events.push({
-              id: "witch-" + d,
-              country: "US",
-              datetime: dt.toISOString(),
-              title: window.t("witching"),
-              forecast: "—",
-              actual: null,
-              previous: "—",
-              importance: 3,
-              tag: "witching",
-              source: "local",
-            });
+      let events = null;
+      if (
+        soft &&
+        !force &&
+        mem &&
+        mem.key === memKey &&
+        Array.isArray(mem.events)
+      ) {
+        events = mem.events.slice();
+      } else {
+        try {
+          events =
+            (await window.CycleAPI.fetchCalendar(
+              from.toISOString(),
+              to.toISOString(),
+              country
+            )) || [];
+        } catch (e) {
+          if (seq !== renderSeq) return;
+          const calBody = root.querySelector("#calBody");
+          if (calBody) {
+            calBody.innerHTML = `<div class="empty">${window.t(
+              "loadError"
+            )}<br/><span class="tiny">${escapeHtml(
+              String(e && e.message ? e.message : e)
+            )}</span></div>`;
           }
-        });
+          wireChrome(() => paint());
+          return;
+        }
+        if (seq !== renderSeq) return;
+
+        if (country === "US") {
+          const have = new Set(
+            events.filter((e) => e.tag === "witching").map((e) => String(e.id))
+          );
+          window.CycleAPI.witchingDates(cursor.getFullYear()).forEach((d) => {
+            const id = "witch-" + d;
+            if (have.has(id)) return;
+            // 美东午后 ≈ 20:00 UTC，存 UTC 再按本机时区展示
+            const dt = new Date(d + "T20:00:00.000Z");
+            if (dt >= from && dt < to) {
+              events.push({
+                id,
+                country: "US",
+                datetime: dt.toISOString(),
+                title: window.t("witching"),
+                forecast: "—",
+                actual: null,
+                previous: "—",
+                importance: 3,
+                tag: "witching",
+                source: "local",
+              });
+            }
+          });
+        }
+        events.sort((a, b) => new Date(a.datetime) - new Date(b.datetime));
+        mem = { key: memKey, events: events.slice() };
       }
-      events.sort((a, b) => new Date(a.datetime) - new Date(b.datetime));
+
       localizeEventsSync(events);
 
       const byId = Object.fromEntries(events.map((e) => [String(e.id), e]));
@@ -355,27 +405,7 @@ window.CyclePages.calendar = (function () {
       const calBody = root.querySelector("#calBody");
       if (calBody) calBody.innerHTML = body;
 
-      root.querySelectorAll("[data-view]").forEach((b) => {
-        b.addEventListener("click", () => {
-          view = b.dataset.view;
-          paint();
-        });
-      });
-      root.querySelector("#prev").addEventListener("click", () => {
-        cursor = view === "day" ? addDays(cursor, -1) : addDays(cursor, -7);
-        paint();
-      });
-      root.querySelector("#next").addEventListener("click", () => {
-        cursor = view === "day" ? addDays(cursor, 1) : addDays(cursor, 7);
-        paint();
-      });
-      root.querySelector("#todayBtn").addEventListener("click", () => {
-        cursor = startOfDay(new Date());
-        paint();
-      });
-      root.querySelector("#openPicker").addEventListener("click", () => {
-        openDatePicker(() => paint());
-      });
+      wireChrome(() => paint());
       root.querySelectorAll("[data-id]").forEach((el) => {
         el.addEventListener("click", (ev) => {
           if (ev.target.closest("[data-sub]")) return;
@@ -390,6 +420,45 @@ window.CyclePages.calendar = (function () {
           if (e) downloadIcs(e);
         });
       });
+    }
+
+    function wireChrome(repaint) {
+      root.querySelectorAll("[data-view]").forEach((b) => {
+        b.addEventListener("click", () => {
+          view = b.dataset.view;
+          mem = null;
+          repaint();
+        });
+      });
+      const prev = root.querySelector("#prev");
+      const next = root.querySelector("#next");
+      const todayBtn = root.querySelector("#todayBtn");
+      const openPicker = root.querySelector("#openPicker");
+      if (prev)
+        prev.addEventListener("click", () => {
+          cursor = view === "day" ? addDays(cursor, -1) : addDays(cursor, -7);
+          mem = null;
+          repaint();
+        });
+      if (next)
+        next.addEventListener("click", () => {
+          cursor = view === "day" ? addDays(cursor, 1) : addDays(cursor, 7);
+          mem = null;
+          repaint();
+        });
+      if (todayBtn)
+        todayBtn.addEventListener("click", () => {
+          cursor = startOfDay(new Date());
+          mem = null;
+          repaint();
+        });
+      if (openPicker)
+        openPicker.addEventListener("click", () => {
+          openDatePicker(() => {
+            mem = null;
+            repaint();
+          });
+        });
     }
 
     await paint();

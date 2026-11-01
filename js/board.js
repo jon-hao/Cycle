@@ -76,10 +76,11 @@ window.CycleBoard = (function () {
       api.fetchMacro("US").catch(() => null),
       api.fetchMacro("CN").catch(() => null),
       api.fetchFearGreed("US").catch(() => null),
+      api.fetchFearGreed("CN").catch(() => null),
       api.fetchCalendar(from, to, "US").catch(() => null),
       api.fetchCalendar(from, to, "CN").catch(() => null),
     ])
-      .then(async ([macroUS, macroCN, fgUS, calUS, calCN]) => {
+      .then(async ([macroUS, macroCN, fgUS, fgCN, calUS, calCN]) => {
         let newsUS = null;
         let newsCN = null;
         try {
@@ -95,6 +96,15 @@ window.CycleBoard = (function () {
           fearGreedUS:
             fgUS && fgUS.value != null
               ? { value: fgUS.value, labelKey: fgUS.labelKey, asOf: fgUS.asOf }
+              : null,
+          fearGreedCN:
+            fgCN && fgCN.value != null
+              ? {
+                  value: fgCN.value,
+                  labelKey: fgCN.labelKey,
+                  asOf: fgCN.asOf,
+                  kind: fgCN.kind,
+                }
               : null,
           newsUS: snapshotNews(newsUS),
           newsCN: snapshotNews(newsCN),

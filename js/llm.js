@@ -1,6 +1,6 @@
 /**
  * 浏览器端大模型（WebLLM + Qwen）
- * 下载状态写入 localStorage，刷新页面可续传/续显进度。
+ * 状态仅存内存（不写 localStorage）。
  */
 window.CycleLLM = (function () {
   // 浏览器 WebGPU：偏中文宏观/金融对话的体积与质量折中（WebLLM MLC 预制）
@@ -10,39 +10,28 @@ window.CycleLLM = (function () {
     "Llama-3.2-1B-Instruct-q4f16_1-MLC",
     "Qwen2.5-0.5B-Instruct-q4f16_1-MLC",
   ];
-  const STATE_KEY = "cycle-llm-dl";
 
   let engine = null;
   let loading = null;
   let listeners = new Set();
+  let memState = {
+    status: "idle",
+    progress: 0,
+    text: "",
+    model: MODEL_CANDIDATES[0],
+  };
 
   function settings() {
-    try {
-      const raw = localStorage.getItem("cycle-llm");
-      return raw ? JSON.parse(raw) : {};
-    } catch (_) {
-      return {};
-    }
+    return {};
   }
 
   function readState() {
-    try {
-      return (
-        JSON.parse(localStorage.getItem(STATE_KEY) || "null") || {
-          status: "idle",
-          progress: 0,
-          text: "",
-          model: MODEL_CANDIDATES[0],
-        }
-      );
-    } catch (_) {
-      return { status: "idle", progress: 0, text: "", model: MODEL_CANDIDATES[0] };
-    }
+    return Object.assign({}, memState);
   }
 
   function writeState(partial) {
-    const next = Object.assign(readState(), partial, { updatedAt: Date.now() });
-    localStorage.setItem(STATE_KEY, JSON.stringify(next));
+    memState = Object.assign({}, memState, partial, { updatedAt: Date.now() });
+    const next = readState();
     listeners.forEach((fn) => {
       try {
         fn(next);

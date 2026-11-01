@@ -1,6 +1,12 @@
 window.CyclePages = window.CyclePages || {};
 
 window.CyclePages.data = (function () {
+  function escapeHtml(s) {
+    return String(s || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+  }
 
   function fmt(v, digits) {
     if (v == null || Number.isNaN(Number(v))) return window.t("missing");
@@ -181,11 +187,7 @@ window.CyclePages.data = (function () {
     const fullSeries =
       window.CycleKondratiev.seriesForMode(mode, k, macro, fg) ||
       window.CycleKondratiev.longWaveSeries(calYear, country);
-    const savedSpan = localStorage.getItem("cycle-wave-span");
-    const spanKey =
-      mode === "realtime" && WAVE_SPANS.some((s) => s.value === savedSpan)
-        ? savedSpan
-        : "3m";
+    let spanKey = "3m";
     const spanRow =
       mode === "realtime"
         ? `<div class="k-span-row">
@@ -229,7 +231,7 @@ window.CyclePages.data = (function () {
         const spanEl = document.getElementById("kSpanSelect");
         if (spanEl) {
           window.CycleSelect.mount(spanEl, waveSpanOptions(), spanKey, (v) => {
-            localStorage.setItem("cycle-wave-span", v);
+            spanKey = v;
             paint(v);
           });
         }
@@ -249,6 +251,12 @@ window.CyclePages.data = (function () {
         )
       );
     });
+  }
+
+  function hintHtml(key) {
+    const text = window.t(key);
+    if (!text || text === key) return "";
+    return `<p class="term-note card-content">${text}</p>`;
   }
 
   function openSeriesModal(title, series, extraHtml, aiPayload, chartOpts) {
@@ -298,8 +306,17 @@ window.CyclePages.data = (function () {
       `);
       return;
     }
+    const fgTitle =
+      (fg && fg.kind === "cnSentiment") || window.CycleState.country === "CN"
+        ? window.t("fearGreedCN")
+        : window.t("fearGreed");
+    const fgHint =
+      (fg && fg.kind === "cnSentiment") || window.CycleState.country === "CN"
+        ? hintHtml("fearGreedCNHint")
+        : hintHtml("fearGreedHint");
     window.CycleUI.openModal(`
-      <div class="sheet-head"><h2 class="card-title">${window.t("fearGreed")}</h2><button type="button" class="icon-btn" data-close>×</button></div>
+      <div class="sheet-head"><h2 class="card-title">${fgTitle}</h2><button type="button" class="icon-btn" data-close>×</button></div>
+      ${fgHint}
       <div class="fg-chart-wrap">
         <div class="fg-stage-bar" aria-hidden="true" title="0–25 / 25–50 / 50–75 / 75–100">
           <span class="s-eg"></span><span class="s-g"></span><span class="s-f"></span><span class="s-ef"></span>
@@ -362,15 +379,39 @@ window.CyclePages.data = (function () {
     ];
   }
 
-  async function render(root) {
+  let mem = null;
+
+  async function render(root, opts) {
+    const soft = opts && opts.soft;
+    const force = opts && opts.force;
     root.innerHTML = skeleton();
     const code = window.CycleState.country;
     const mode = window.CycleState.kModel || "realtime";
 
-    const [macro, fg] = await Promise.all([
-      window.CycleAPI.fetchMacro(code),
-      window.CycleAPI.fetchFearGreed(code),
-    ]);
+    let macro;
+    let fg;
+    if (soft && !force && mem && mem.code === code && mem.macro) {
+      macro = mem.macro;
+      fg = mem.fg;
+    } else {
+      try {
+        [macro, fg] = await Promise.all([
+          window.CycleAPI.fetchMacro(code),
+          window.CycleAPI.fetchFearGreed(code),
+        ]);
+        mem = { code, macro, fg };
+      } catch (e) {
+        mem = null;
+        root.innerHTML = `<div class="empty">${window.t("loadError")}<br/><span class="tiny">${escapeHtml(
+          String(e && e.message ? e.message : e)
+        )}</span></div>`;
+        return;
+      }
+    }
+    if (!macro && !fg) {
+      root.innerHTML = `<div class="empty">${window.t("loadError")}</div>`;
+      return;
+    }
 
     const k = window.CycleKondratiev.resolveModel(mode, code, macro, fg);
 
@@ -397,7 +438,11 @@ window.CyclePages.data = (function () {
         ${
           fg
             ? `<section class="metric-card fg-card" data-metric="fear" role="button" tabindex="0">
-          <div class="metric-top"><span class="card-title">${window.t("fearGreed")}</span>
+          <div class="metric-top"><span class="card-title">${
+            code === "CN" || (fg && fg.kind === "cnSentiment")
+              ? window.t("fearGreedCN")
+              : window.t("fearGreed")
+          }</span>
             <span class="metric-open card-date">${window.t("openChart")}</span></div>
           <div class="fg-gauge-wrap"><svg id="fgGauge" class="fg-gauge"></svg></div>
         </section>`
@@ -553,8 +598,7 @@ window.CyclePages.data = (function () {
       mode,
       (v) => {
         window.CycleState.kModel = v;
-        localStorage.setItem("cycle-k-model", v);
-        render(root);
+        render(root, { soft: true });
       }
     );
 
@@ -602,104 +646,96 @@ window.CyclePages.data = (function () {
       rate: {
         title: `${bankLabel(code)} · ${rateLabel(code)}`,
         series: macro && macro.rateHistory,
-        extra: nextMeetHtml(next),
+        extra: hintHtml("rateHint") + (nextMeetHtml(next) || ""),
       },
       inflation: {
         title: window.t("inflation"),
         series: macro && macro.inflationHistory,
-        extra: `<p class="term-note card-content">${window.t("inflationHint")}</p>`,
+        extra: hintHtml("inflationHint"),
       },
       cpi: {
         title: window.t("cpi"),
         series: macro && macro.cpiHistory,
-        extra: `<p class="term-note card-content">${window.t("cpiHint")}</p>`,
+        extra: hintHtml("cpiHint"),
       },
       ppi: {
         title: window.t("ppi"),
         series: macro && macro.ppiHistory,
-        extra: `<p class="term-note card-content">${window.t("ppiHint")}</p>`,
+        extra: hintHtml("ppiHint"),
       },
       coreCpi: {
         title: window.t("coreCpi"),
         series: macro && macro.coreCpiHistory,
-        extra: "",
+        extra: hintHtml("coreCpiHint"),
         opts: { yUnit: "%" },
       },
       unrate: {
         title: window.t("unrate"),
         series: macro && macro.unrateHistory,
-        extra: "",
+        extra: hintHtml("unrateHint"),
         opts: { yUnit: "%" },
       },
       payrolls: {
         title: window.t("payrolls"),
         series: macro && macro.payrollsYoYHistory,
-        extra: "",
+        extra: hintHtml("payrollsHint"),
         opts: { yUnit: "%" },
       },
       indpro: {
         title: window.t("indpro"),
         series: macro && macro.indproYoYHistory,
-        extra: "",
+        extra: hintHtml("indproHint"),
         opts: { yUnit: "%" },
       },
       retail: {
         title: window.t("retail"),
         series: macro && macro.retailYoYHistory,
-        extra: "",
+        extra: hintHtml("retailHint"),
         opts: { yUnit: "%" },
       },
       gdp: {
         title: window.t("gdp"),
         series: macro && macro.gdpYoYHistory,
-        extra: "",
+        extra: hintHtml("gdpHint"),
         opts: { yUnit: "%" },
       },
       yieldCurve: {
         title: window.t("yieldCurve"),
         series: macro && macro.yieldCurveHistory,
-        extra: "",
+        extra: hintHtml("yieldCurveHint"),
         opts: { yUnit: "%" },
       },
       m2: {
         title: window.t("m2"),
         series: macro && macro.m2YoYHistory,
-        extra: "",
+        extra: hintHtml("m2Hint"),
         opts: { yUnit: "%" },
       },
       credit: {
-        title: window.t("credit"),
+        title: window.t(code === "CN" ? "creditCN" : "credit"),
         series: macro && macro.creditYoYHistory,
-        extra: "",
+        extra: hintHtml(code === "CN" ? "creditCNHint" : "creditHint"),
         opts: { yUnit: "%" },
       },
       housing: {
         title: window.t(code === "CN" ? "housingCN" : "housing"),
         series: macro && macro.housingYoYHistory,
-        extra: "",
+        extra: hintHtml(code === "CN" ? "housingCNHint" : "housingHint"),
         opts: { yUnit: "%" },
       },
       claims: {
         title: window.t("claims"),
         series: macro && macro.claimsHistory,
-        extra: "",
+        extra: hintHtml("claimsHint"),
         opts: { yUnit: "" },
       },
       pmi: {
         title: window.t("pmi"),
         series: macro && macro.pmiHistory,
-        extra: "",
+        extra: hintHtml("pmiHint"),
         opts: { yUnit: "" },
       },
     };
-    if (code === "CN") {
-      seriesMap.credit = {
-        title: window.t("creditCN"),
-        series: macro && macro.creditYoYHistory,
-        extra: "",
-        opts: { yUnit: "%" },
-      };
-    }
 
     function openMetric(id) {
       if (id === "fear") {
@@ -709,7 +745,10 @@ window.CyclePages.data = (function () {
           trend,
           focusPayload(aiPayload, {
             metric: "fearGreed",
-            title: window.t("fearGreed"),
+            title:
+              (fg && fg.kind === "cnSentiment") || code === "CN"
+                ? window.t("fearGreedCN")
+                : window.t("fearGreed"),
             value: fgVal,
             delta: trend,
           })

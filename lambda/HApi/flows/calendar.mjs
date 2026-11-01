@@ -9,6 +9,47 @@ const FC = "https://www.financecalendar.com/wp-json/fc/v1";
 const PA = "https://pipatlas.com/api/calendar";
 const FF = "https://nfs.faireconomy.media/ff_calendar_thisweek.json";
 
+/** 把各源时间规范成 UTC ISO，供前端按用户本机时区显示 */
+function toUtcIso(raw, countryHint) {
+  if (raw == null || raw === "") return null;
+  const s = String(raw).trim();
+  if (/Z$/i.test(s) || /[+-]\d{2}:\d{2}$/.test(s)) {
+    const d = new Date(s);
+    return Number.isNaN(d.getTime()) ? null : d.toISOString();
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    return s + "T16:00:00.000Z";
+  }
+  const m = s.match(
+    /^(\d{4}-\d{2}-\d{2})[T\s](\d{1,2}):(\d{2})(?::(\d{2}))?/
+  );
+  if (m) {
+    const hh = String(m[2]).padStart(2, "0");
+    const mm = m[3];
+    const ss = m[4] || "00";
+    const local = `${m[1]}T${hh}:${mm}:${ss}`;
+    let off = "Z";
+    if (countryHint === "US") {
+      // 近似美东 DST：3 月第二周–11 月第一周用 EDT
+      const y = Number(m[1].slice(0, 4));
+      const month = Number(m[1].slice(5, 7));
+      const day = Number(m[1].slice(8, 10));
+      const isEdt =
+        (month > 3 && month < 11) ||
+        (month === 3 && day >= 8) ||
+        (month === 11 && day <= 7);
+      off = isEdt ? "-04:00" : "-05:00";
+      void y;
+    } else if (countryHint === "CN") {
+      off = "+08:00";
+    }
+    const d = new Date(local + (off === "Z" ? "Z" : off));
+    return Number.isNaN(d.getTime()) ? null : d.toISOString();
+  }
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
 function witchingDates(year) {
   const out = [];
   [2, 5, 8, 11].forEach((month) => {
@@ -59,10 +100,11 @@ function mapEvent(e, source) {
         ? 2
         : 1;
 
+  const rawDt = e.time_utc || e.dateUtc || e.datetime || e.date || e.time;
   return {
     id: e.url || e.id || titleRaw + (e.date || e.time_utc || e.dateUtc || ""),
     country,
-    datetime: e.time_utc || e.dateUtc || e.date || e.datetime,
+    datetime: toUtcIso(rawDt, country) || toUtcIso(e.date, country),
     title: titleRaw,
     holidayName: isHol ? titleRaw : null,
     market: isHol ? country : null,
@@ -86,13 +128,14 @@ function mapFf(e) {
   const date = e.date || "";
   const time = e.time && e.time !== "All Day" ? e.time : "00:00";
   // FF dates are often "10-16-2026" or ISO-ish
-  let datetime = date;
+  let naive = date;
   if (/^\d{2}-\d{2}-\d{4}/.test(date)) {
     const [mm, dd, yyyy] = date.split("-");
-    datetime = `${yyyy}-${mm}-${dd}T${time.length === 5 ? time + ":00" : "12:00:00"}Z`;
+    naive = `${yyyy}-${mm}-${dd}T${time.length === 5 ? time + ":00" : "12:00:00"}`;
   } else if (date) {
-    datetime = `${String(date).slice(0, 10)}T${time.length === 5 ? time + ":00" : "12:00:00"}Z`;
+    naive = `${String(date).slice(0, 10)}T${time.length === 5 ? time + ":00" : "12:00:00"}`;
   }
+  const datetime = toUtcIso(naive, country);
   return {
     id: "ff-" + (e.title || "") + datetime,
     country,
@@ -206,7 +249,7 @@ export async function handleCalendar(payload) {
       out.push({
         id: "hol-" + d + "-" + i,
         country: "US",
-        datetime: d + "T13:00:00",
+        datetime: toUtcIso(d + "T09:30:00", "US"),
         title: name || "US Equity Market Holiday",
         holidayName: name,
         market: "US",
@@ -252,6 +295,13 @@ export async function handleCalendar(payload) {
       (e) => e.country === country || e.tag === "holiday" || e.tag === "witching"
     );
   }
+  events = events
+    .map((e) =>
+      Object.assign({}, e, {
+        datetime: toUtcIso(e.datetime, e.country) || e.datetime,
+      })
+    )
+    .filter((e) => e.datetime);
   events.sort((a, b) => new Date(a.datetime) - new Date(b.datetime));
 
   const data = {

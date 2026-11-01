@@ -290,9 +290,9 @@ button,
 
 /* —— Main：唯一滚动区 —— */
 .site-main {
-  width: min(1100px, calc(100% - 24px));
+  width: min(1100px, 100%);
   margin: 0 auto;
-  padding: 16px 0 calc(var(--footer-h) + 20px);
+  padding: 16px 14px calc(var(--footer-h) + 20px);
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -393,6 +393,37 @@ button,
   position: relative;
   z-index: 1;
   letter-spacing: 0.02em;
+}
+
+.refresh-fab {
+  pointer-events: auto;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  border: 1px solid var(--glass-border);
+  background: var(--glass);
+  backdrop-filter: blur(18px) saturate(1.35);
+  -webkit-backdrop-filter: blur(18px) saturate(1.35);
+  box-shadow: 0 10px 30px rgba(21, 32, 51, 0.12);
+  color: var(--muted);
+  font-weight: 800;
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.refresh-fab[data-on="1"] {
+  color: #1f8a5b;
+  border-color: color-mix(in srgb, var(--brand) 45%, var(--glass-border));
+}
+
+.refresh-fab-label {
+  position: relative;
+  z-index: 1;
 }
 
 .ptr-indicator {
@@ -1064,6 +1095,10 @@ button,
   display: grid;
   grid-template-columns: 1fr;
   gap: 8px;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding-right: 2px;
 }
 
 @media (min-width: 900px) {
@@ -1075,9 +1110,11 @@ button,
 .w-col {
   border: 1px solid var(--line);
   border-radius: 8px;
-  padding: 8px;
+  padding: 10px 12px;
   min-height: 120px;
+  min-width: 0;
   background: var(--bg-elev);
+  box-sizing: border-box;
 }
 
 .w-col.today {
@@ -1093,15 +1130,23 @@ button,
 .w-item {
   display: block;
   width: 100%;
+  max-width: 100%;
   text-align: left;
   border: 0;
   background: color-mix(in srgb, var(--accent-2) 12%, transparent);
   color: var(--ink);
   border-radius: 4px;
-  padding: 6px;
+  padding: 6px 8px;
   margin-bottom: 4px;
   cursor: pointer;
   font-size: 0.75rem;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.w-item .card-title {
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .modal {
@@ -1457,6 +1502,11 @@ button,
 
 .event-line {
   margin: 8px 0 0;
+}
+
+.sheet > .btn,
+.sheet .btn#subEvent {
+  margin-top: 18px;
 }
 
 .loading,

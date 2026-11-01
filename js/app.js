@@ -15,9 +15,23 @@ window.CycleState = {
     return "zh";
   })(),
   theme: localStorage.getItem("cycle-theme") || "light",
-  kModel: localStorage.getItem("cycle-k-model") === "schematic" ? "schematic" : "realtime",
-  page: "data",
+  kModel: "realtime",
+  page: "news",
+  autoRefresh: false,
 };
+
+/** 只保留国家 / 语言 / 主题；清掉历史杂项 */
+(function scrubLocalStorage() {
+  const keep = new Set(["cycle-country", "cycle-lang", "cycle-theme"]);
+  try {
+    const drop = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.indexOf("cycle") === 0 && !keep.has(k)) drop.push(k);
+    }
+    drop.forEach((k) => localStorage.removeItem(k));
+  } catch (_) {}
+})();
 
 window.CycleUI = {
   openModal(html) {
@@ -168,12 +182,16 @@ window.CycleSelect = (function () {
     modelFab: document.getElementById("modelFab"),
     modelFabLabel: document.getElementById("modelFabLabel"),
     modelFabRing: document.getElementById("modelFabRing"),
+    refreshFab: document.getElementById("refreshFab"),
     ptr: document.getElementById("ptrIndicator"),
   };
 
   let countryCtl = null;
   let langCtl = null;
   let refreshing = false;
+  let autoTimer = null;
+  // 金十快讯近实时；3 分钟兼顾新鲜度与 Lambda 免费额度（开开关约 480 次/页/天）
+  const AUTO_MS = 3 * 60 * 1000;
 
   function countryOptions() {
     return [
@@ -212,6 +230,7 @@ window.CycleSelect = (function () {
       langCtl.refresh(langOptions(), window.CycleState.lang);
     }
     paintModelFab(window.CycleLLM.getStatus());
+    paintRefreshFab();
     moveIndicator(false);
   }
 
@@ -223,7 +242,6 @@ window.CycleSelect = (function () {
     if (els.modelFabRing) {
       els.modelFabRing.style.setProperty("--p", String(st.progress || 0));
     }
-    // 始终显示 AI 文案：未就绪灰色，就绪绿色
     els.modelFabLabel.textContent = "AI";
     if (status === "ready") {
       els.modelFab.title = window.t("modelReady");
@@ -234,6 +252,33 @@ window.CycleSelect = (function () {
       els.modelFab.title = window.t("modelError") + (st.text ? ": " + st.text : "");
     } else {
       els.modelFab.title = window.t("modelDownload");
+    }
+  }
+
+  function paintRefreshFab() {
+    if (!els.refreshFab) return;
+    const on = !!window.CycleState.autoRefresh;
+    els.refreshFab.dataset.on = on ? "1" : "0";
+    els.refreshFab.setAttribute("aria-pressed", on ? "true" : "false");
+    els.refreshFab.title = on
+      ? window.t("autoRefreshOn") + " · " + window.t("autoRefreshHint")
+      : window.t("autoRefreshOff") + " · " + window.t("autoRefreshHint");
+    const lab = els.refreshFab.querySelector(".refresh-fab-label");
+    if (lab) lab.textContent = on ? "ON" : "OFF";
+  }
+
+  function setAutoRefresh(on) {
+    window.CycleState.autoRefresh = !!on;
+    paintRefreshFab();
+    if (autoTimer) {
+      clearInterval(autoTimer);
+      autoTimer = null;
+    }
+    if (window.CycleState.autoRefresh) {
+      autoTimer = setInterval(() => {
+        if (document.hidden) return;
+        renderPage(false, { force: true });
+      }, AUTO_MS);
     }
   }
 
@@ -249,6 +294,14 @@ window.CycleSelect = (function () {
       if (st.status === "downloading") return;
       window.CycleLLM.startDownload();
     });
+  }
+
+  function wireRefreshFab() {
+    if (!els.refreshFab) return;
+    els.refreshFab.addEventListener("click", () => {
+      setAutoRefresh(!window.CycleState.autoRefresh);
+    });
+    paintRefreshFab();
   }
 
   function wirePullToRefresh() {
@@ -302,7 +355,7 @@ window.CycleSelect = (function () {
             els.ptr.textContent = window.t("refreshing");
           }
           try {
-            await renderPage(false);
+            await renderPage(false, { force: true });
             if (window.CycleBoard && window.CycleBoard.warmInBackground) {
               window.CycleBoard.warmInBackground();
             }
@@ -356,8 +409,12 @@ window.CycleSelect = (function () {
       } catch (e) {
         console.warn("[Cycle] page render", page, e);
         if (seq === pageRenderSeq) {
+          const msg = String(e && e.message ? e.message : e);
           els.main.innerHTML =
-            `<div class="empty">${window.t("missing") || "加载失败"}</div>`;
+            `<div class="empty">${window.t("loadError")}<br/><span class="tiny">${msg
+              .replace(/&/g, "&amp;")
+              .replace(/</g, "&lt;")
+              .replace(/>/g, "&gt;")}</span></div>`;
         }
       }
     }
@@ -369,7 +426,8 @@ window.CycleSelect = (function () {
     if (location.hash.replace(/^#/, "") !== page) {
       location.hash = page;
     }
-    renderPage(true);
+    // footer 切换复用内存，不重复拉网；自动刷新 / 下拉 / 换国家才 force
+    renderPage(true, { soft: true });
   }
 
   function wire() {
@@ -380,7 +438,7 @@ window.CycleSelect = (function () {
       (v) => {
         window.CycleState.country = v;
         localStorage.setItem("cycle-country", v);
-        renderPage(false);
+        renderPage(false, { force: true });
       }
     );
 
@@ -416,11 +474,11 @@ window.CycleSelect = (function () {
     });
 
     window.addEventListener("hashchange", () => {
-      const h = (location.hash || "#data").replace("#", "");
+      const h = (location.hash || "#news").replace("#", "");
       if (["data", "news", "calendar"].includes(h)) {
         if (window.CycleState.page !== h) {
           window.CycleState.page = h;
-          renderPage(true);
+          renderPage(true, { soft: true });
         }
       }
     });
@@ -446,6 +504,7 @@ window.CycleSelect = (function () {
     applyTheme();
     wire();
     wireModelFab();
+    wireRefreshFab();
     wirePullToRefresh();
     applyLang();
 
@@ -453,10 +512,13 @@ window.CycleSelect = (function () {
       window.CycleLLM.resumeIfNeeded();
     }
 
-    const h = (location.hash || "#data").replace("#", "");
+    const h = (location.hash || "#news").replace("#", "");
     window.CycleState.page = ["data", "news", "calendar"].includes(h)
       ? h
-      : "data";
+      : "news";
+    if (!location.hash || location.hash === "#") {
+      location.hash = "news";
+    }
 
     await renderPage(false);
     if (window.CycleBoard && window.CycleBoard.warmInBackground) {

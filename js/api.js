@@ -379,20 +379,22 @@ window.CycleAPI = (function () {
   }
 
   async function fetchFearGreed(country) {
-    // CNN Fear & Greed 面向美股情绪；中国暂无对等公开源
-    if (country === "CN") return null;
     if (cycleApiBase()) {
-      const d = await hapi("feargreed", { country: "US" }, { timeout: 20000 });
+      const code = country === "CN" ? "CN" : "US";
+      const d = await hapi("feargreed", { country: code }, { timeout: 20000 });
       if (d && d.value != null) {
         return {
           value: d.value,
           labelKey: d.labelKey,
-          label: window.t(d.labelKey || "fgFear"),
+          label: d.labelText || window.t(d.labelKey || "fgFear"),
           history: d.history,
           asOf: d.asOf || null,
+          kind: d.kind || null,
         };
       }
+      if (code === "CN") return null;
     }
+    if (country === "CN") return null;
     const d = await getJSON(FG);
     if (!d || !Array.isArray(d.values) || !d.values.length) return null;
     const dates = d.dates || [];
@@ -581,7 +583,7 @@ window.CycleAPI = (function () {
     return cfg.app || "cycle";
   }
 
-  /** 统一走 HApi；params 为 query 对象 */
+  /** 统一走 HApi；失败抛错以便前端展示 */
   async function hapi(flow, params, opts) {
     const base = cycleApiBase();
     if (!base) return null;
@@ -590,7 +592,22 @@ window.CycleAPI = (function () {
       .filter((k) => q[k] != null && q[k] !== "")
       .map((k) => encodeURIComponent(k) + "=" + encodeURIComponent(q[k]))
       .join("&");
-    return getJSON(base + "?" + qs, opts || { timeout: 45000 });
+    const url = base + "?" + qs;
+    const timeout = (opts && opts.timeout) || 45000;
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), timeout);
+    try {
+      const res = await fetch(url, { signal: ctrl.signal });
+      clearTimeout(t);
+      if (!res.ok) throw new Error("HApi HTTP " + res.status);
+      const data = await res.json();
+      if (data && data.error) throw new Error(String(data.error));
+      return data;
+    } catch (e) {
+      clearTimeout(t);
+      if (e && e.name === "AbortError") throw new Error("HApi timeout");
+      throw e;
+    }
   }
 
   let newsInflight = null;
@@ -613,21 +630,26 @@ window.CycleAPI = (function () {
       let lastErr = null;
       for (let i = 0; i < 2; i++) {
         try {
-          const d = await hapi("news", {}, { timeout: 18000 });
+          const d = await hapi("news", {}, { timeout: 55000 });
+          if (d && d.error) {
+            throw new Error(String(d.error));
+          }
           if (d && Array.isArray(d.items) && d.items.length) {
             const items = d.items.filter(
               (n) => !isDigestNoise(n.title, n.summary || n.content)
             );
+            if (!items.length) throw new Error("news filtered empty");
             newsMemo = { at: Date.now(), items };
             return items;
           }
+          lastErr = new Error("news empty");
         } catch (e) {
           lastErr = e;
         }
         if (i === 0) await new Promise((r) => setTimeout(r, 250));
       }
-      if (lastErr) console.warn("[Cycle] news proxy", lastErr);
-      return null;
+      if (lastErr) throw lastErr;
+      throw new Error("news failed");
     })().finally(() => {
       newsInflight = null;
     });
@@ -647,7 +669,9 @@ window.CycleAPI = (function () {
     // 已配置 Function URL 时只用金十「重要事件」专题；否则回退 RSS
     if (cycleApiBase()) {
       const proxied = await fetchNewsProxy();
-      if (!proxied || !proxied.length) return null;
+      if (!proxied || !proxied.length) {
+        throw new Error("news empty");
+      }
       const ranked = proxied
         .slice()
         .sort((a, b) => (a.rank || 0) - (b.rank || 0));
@@ -717,11 +741,12 @@ window.CycleAPI = (function () {
       const d = await hapi(
         "calendar",
         { from, to, country: code },
-        { timeout: 45000 }
+        { timeout: 55000 }
       );
       if (d && Array.isArray(d.events)) {
-        return d.events.length ? d.events : null;
+        return d.events;
       }
+      throw new Error("calendar empty");
     }
     const [fc, pa, holidays] = await Promise.all([
       getJSON(`${FC}/calendar?from=${from}&to=${to}&impact=high&limit=200`),
@@ -840,10 +865,15 @@ window.CycleAPI = (function () {
     return out;
   }
 
+  function clearNewsMemo() {
+    newsMemo = { at: 0, items: null };
+  }
+
   return {
     fetchMacro,
     fetchFearGreed,
     fetchImportantNews,
+    clearNewsMemo,
     searchWeb,
     fetchCalendar,
     witchingDates,
