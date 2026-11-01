@@ -12,6 +12,11 @@ import {
   srcXvideosSearch,
   srcXvideosSite,
 } from "../lib/sources.mjs";
+import {
+  toInternalSource,
+  publicizeItem,
+  publicizeErrorMap,
+} from "../lib/humanitySources.mjs";
 
 const UA = {
   "user-agent":
@@ -329,7 +334,10 @@ export async function handleHumanitySearch(payload) {
   if (!q) {
     return { flow: "hsearch", ok: false, __status: 400, error: "q required" };
   }
-  const source = String(payload.source || "all").toLowerCase();
+  const source = toInternalSource(payload.source || "all");
+  if (!source) {
+    return { flow: "hsearch", ok: false, __status: 400, error: "unknown source" };
+  }
   const page = Math.max(1, Number(payload.page) || 1);
 
   const jobs = [];
@@ -347,9 +355,9 @@ export async function handleHumanitySearch(payload) {
   }
 
   const parts = await Promise.all(jobs);
-  const items = parts.flatMap((p) => p.items);
-  const errors = Object.fromEntries(
-    parts.filter((p) => p.error).map((p) => [p.source, p.error])
+  const items = parts.flatMap((p) => p.items).map(publicizeItem);
+  const errors = publicizeErrorMap(
+    Object.fromEntries(parts.filter((p) => p.error).map((p) => [p.source, p.error]))
   );
   const maxPerSource = Math.max(0, ...parts.map((p) => (p.items || []).length));
   const hasMore =
@@ -357,18 +365,21 @@ export async function handleHumanitySearch(payload) {
       ? parts.some((p) => (p.items || []).length >= PAGE_SIZE)
       : maxPerSource >= PAGE_SIZE;
 
+  const pubSource =
+    source === "all" ? "all" : publicizeItem({ source }).source;
+
   return {
     flow: "hsearch",
     ok: true,
     app: "humanity",
     q,
-    source,
+    source: pubSource,
     page,
     pageSize: PAGE_SIZE,
     hasMore,
     count: items.length,
     items,
-    errors: Object.keys(errors).length ? errors : null,
+    errors,
   };
 }
 

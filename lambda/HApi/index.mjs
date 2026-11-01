@@ -20,6 +20,7 @@ import { handleHumanityAuth } from "./flows/humanityAuth.mjs";
 import { handleHumanitySearch } from "./flows/humanitySearch.mjs";
 import { handleHumanityFavorites } from "./flows/humanityFavorites.mjs";
 import { handleHumanityPlay } from "./flows/humanityPlay.mjs";
+import { handleHumanityMeta } from "./flows/humanityMeta.mjs";
 import { withQuota, quotaStatus } from "./quota.mjs";
 import { normalizeApp, requireAppSession } from "./lib/appAuth.mjs";
 
@@ -38,6 +39,7 @@ const FLOWS = {
   hsearch: handleHumanitySearch,
   hfav: handleHumanityFavorites,
   hplay: handleHumanityPlay,
+  hmeta: handleHumanityMeta,
 };
 
 /** 仅登录动作免鉴权；check/logout 仍需 token */
@@ -54,7 +56,8 @@ function json(statusCode, obj) {
         obj.flow === "cauth" ||
         obj.flow === "hfav" ||
         obj.flow === "hsearch" ||
-        obj.flow === "hplay"));
+        obj.flow === "hplay" ||
+        obj.flow === "hmeta"));
   return {
     statusCode,
     headers: {
@@ -110,7 +113,14 @@ function inferApp(flow, payload) {
   if (flow === "hauth" || flow === "cauth") {
     return flow === "cauth" ? "cycle" : "humanity";
   }
-  if (flow === "hsearch" || flow === "hfav" || flow === "hplay") return "humanity";
+  if (
+    flow === "hsearch" ||
+    flow === "hfav" ||
+    flow === "hplay" ||
+    flow === "hmeta"
+  ) {
+    return "humanity";
+  }
   // Cycle 业务流默认 cycle
   if (
     flow === "news" ||

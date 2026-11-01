@@ -4,17 +4,27 @@
 
 import { dbGet, dbPut, dbDelete, dbQueryPk } from "../lib/db.mjs";
 import { requireHumanitySession } from "./humanityAuth.mjs";
+import {
+  publicizeItem,
+  toInternalItemId,
+  toInternalSource,
+} from "../lib/humanitySources.mjs";
 
 function favPk(email) {
   return "humanity#fav#" + email;
 }
 
 function normalizeItem(raw) {
-  const id = String(raw.id || "").trim();
-  if (!id) return null;
+  const pubId = String(raw.id || "").trim();
+  if (!pubId) return null;
+  const id = toInternalItemId(pubId);
+  const internalSource =
+    toInternalSource(raw.source) ||
+    (id.includes(":") ? id.split(":")[0] : "") ||
+    String(raw.source || "");
   return {
     id,
-    source: String(raw.source || "").slice(0, 32),
+    source: internalSource.slice(0, 32),
     title: String(raw.title || "").slice(0, 300),
     thumb: raw.thumb ? String(raw.thumb).slice(0, 800) : null,
     preview: raw.preview ? String(raw.preview).slice(0, 800) : null,
@@ -34,17 +44,19 @@ export async function handleHumanityFavorites(payload) {
   if (action === "list") {
     const rows = await dbQueryPk(pk, { limit: 200 });
     const items = rows
-      .map((r) => ({
-        id: r.sk,
-        source: r.source,
-        title: r.title,
-        thumb: r.thumb,
-        preview: r.preview,
-        url: r.url,
-        embed: r.embed,
-        duration: r.duration,
-        savedAt: r.savedAt,
-      }))
+      .map((r) =>
+        publicizeItem({
+          id: r.sk,
+          source: r.source,
+          title: r.title,
+          thumb: r.thumb,
+          preview: r.preview,
+          url: r.url,
+          embed: r.embed,
+          duration: r.duration,
+          savedAt: r.savedAt,
+        })
+      )
       .sort((a, b) => String(b.savedAt || "").localeCompare(String(a.savedAt || "")));
     return { flow: "hfav", ok: true, count: items.length, items };
   }
@@ -62,24 +74,31 @@ export async function handleHumanityFavorites(payload) {
       app: "humanity",
       savedAt: new Date().toISOString(),
     });
-    return { flow: "hfav", ok: true, saved: item.id };
+    const pub = publicizeItem(item);
+    return { flow: "hfav", ok: true, saved: pub.id };
   }
 
   if (action === "remove" || action === "delete") {
-    const id = String((payload.item && payload.item.id) || payload.id || "").trim();
-    if (!id) {
+    const rawId = String((payload.item && payload.item.id) || payload.id || "").trim();
+    if (!rawId) {
       return { flow: "hfav", ok: false, __status: 400, error: "id required" };
     }
-    await dbDelete(pk, id);
-    return { flow: "hfav", ok: true, removed: id };
+    const internalId = toInternalItemId(rawId);
+    await dbDelete(pk, internalId);
+    // 兼容旧收藏键已是对外形态
+    if (internalId !== rawId) await dbDelete(pk, rawId).catch(() => {});
+    return { flow: "hfav", ok: true, removed: publicizeItem({ id: internalId, source: internalId.split(":")[0] }).id };
   }
 
   if (action === "has") {
-    const id = String(payload.id || "").trim();
-    if (!id) {
+    const rawId = String(payload.id || "").trim();
+    if (!rawId) {
       return { flow: "hfav", ok: false, __status: 400, error: "id required" };
     }
-    const row = await dbGet(pk, id);
+    const internalId = toInternalItemId(rawId);
+    const row =
+      (await dbGet(pk, internalId)) ||
+      (internalId !== rawId ? await dbGet(pk, rawId) : null);
     return { flow: "hfav", ok: true, saved: !!row };
   }
 

@@ -10,6 +10,7 @@ import {
   srcPornhubSite,
   srcXvideosSite,
 } from "../lib/sources.mjs";
+import { toInternalSource, toPublicChannel } from "../lib/humanitySources.mjs";
 
 const UA = {
   "user-agent":
@@ -174,13 +175,17 @@ export async function handleHumanityPlay(payload) {
 
   const page = pick(payload.page, payload.url);
   const embedIn = pick(payload.embed);
-  const source = String(
-    payload.source || guessSource(page) || guessSource(embedIn) || ""
-  ).toLowerCase();
+  const source =
+    toInternalSource(payload.source) ||
+    guessSource(page) ||
+    guessSource(embedIn) ||
+    "";
 
   if (!page && !embedIn) {
     return { flow: "hplay", ok: false, __status: 400, error: "page or embed required" };
   }
+
+  const pub = source ? toPublicChannel(source) : { value: null, label: null };
 
   try {
     let resolved = { stream: null, hls: null, quality: null, embed: embedIn || null };
@@ -203,8 +208,8 @@ export async function handleHumanityPlay(payload) {
       flow: "hplay",
       ok: true,
       app: "humanity",
-      source: source || null,
-      page: page || null,
+      source: pub.value,
+      sourceLabel: pub.label,
       stream: resolved.stream || null,
       hls: resolved.hls || null,
       quality: resolved.quality || null,
@@ -215,8 +220,8 @@ export async function handleHumanityPlay(payload) {
       flow: "hplay",
       ok: true,
       app: "humanity",
-      source: source || null,
-      page: page || null,
+      source: pub.value,
+      sourceLabel: pub.label,
       stream: null,
       hls: null,
       quality: null,
