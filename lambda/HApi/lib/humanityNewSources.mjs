@@ -2,7 +2,7 @@
  * MissAV / XNXX / Hanime1 搜索、播放、相关推荐适配。
  */
 
-import { fetchText, fetchTextBrowser } from "./http.mjs";
+import { fetchText, fetchTextResilient } from "./http.mjs";
 import {
   srcHanimeSearch,
   srcHanimeSite,
@@ -202,7 +202,7 @@ export async function searchMissav(q, page) {
     "/" +
     encodeURIComponent(q) +
     (pg > 1 ? "?page=" + pg : "");
-  const html = await fetchTextBrowser(url, {
+  const html = await fetchTextResilient(url, {
     timeout: 18000,
     referer: site + "/dm265/en",
   });
@@ -216,7 +216,7 @@ export async function browseMissav(page) {
     site +
     "/dm301/en/today-hot" +
     (pg > 1 ? "?page=" + pg : "");
-  const html = await fetchTextBrowser(url, {
+  const html = await fetchTextResilient(url, {
     timeout: 18000,
     referer: site + "/dm265/en",
   });
@@ -261,7 +261,7 @@ function missavQualitiesFromHtml(html) {
 
 export async function resolveMissav(page) {
   const site = srcMissavSite().replace(/\/$/, "");
-  const html = await fetchTextBrowser(page, {
+  const html = await fetchTextResilient(page, {
     timeout: 18000,
     referer: site + "/dm265/en",
   });
@@ -325,7 +325,7 @@ export function parseMissavRelated(html, site, selfCode) {
 
 export async function relatedMissav(page) {
   const site = srcMissavSite().replace(/\/$/, "");
-  const html = await fetchTextBrowser(page, {
+  const html = await fetchTextResilient(page, {
     timeout: 18000,
     referer: site + "/",
   });
@@ -373,12 +373,11 @@ function parseXnxxHtml(html, site, seen) {
     const title = clean((chunk.match(/title="([^"]*)"/) || [])[1] || "");
     if (!thumb && !preview) continue;
     const meta = (chunk.match(/<p class="metadata">([\s\S]*?)<\/p>/i) || [])[1] || "";
-    const duration = formatDuration(
-      (meta.match(/(\d+)\s*min/i) || meta.match(/(\d+:\d{2}(?::\d{2})?)/) || [])[1]
-    );
-    const quality = normalizeQuality(
-      (meta.match(/video-hd[\s\S]*?>\s*([^<]+)/i) || [])[1]
-    );
+    const minMatch = meta.match(/(\d+)\s*min/i);
+    const duration = minMatch
+      ? formatDuration(Number(minMatch[1]) * 60)
+      : formatDuration((meta.match(/(\d+:\d{2}(?::\d{2})?)/) || [])[1]);
+    const quality = normalizeQuality((meta.match(/(\d{3,4}\s*p)/i) || [])[1]);
     seen.add(eid);
     out.push({
       id: "xnxx:" + eid,
@@ -576,9 +575,9 @@ export async function searchHanime(q, page) {
       query: q,
       page: String(pg),
     }).toString();
-  const html = await fetchText(url, {
+  const html = await fetchTextResilient(url, {
     timeout: 18000,
-    headers: { ...UA, accept: "text/html", referer: site + "/" },
+    referer: site + "/",
   });
   return parseHanimeCards(html, site);
 }
@@ -587,18 +586,18 @@ export async function browseHanime(page) {
   const site = srcHanimeSite().replace(/\/$/, "");
   const pg = Math.max(1, page || 1);
   const url = site + "/" + (pg > 1 ? "?page=" + pg : "");
-  const html = await fetchText(url, {
+  const html = await fetchTextResilient(url, {
     timeout: 18000,
-    headers: { ...UA, accept: "text/html", referer: site + "/" },
+    referer: site + "/",
   });
   return parseHanimeCards(html, site);
 }
 
 export async function resolveHanime(page) {
   const site = srcHanimeSite().replace(/\/$/, "");
-  const html = await fetchText(page, {
+  const html = await fetchTextResilient(page, {
     timeout: 18000,
-    headers: { ...UA, accept: "text/html", referer: site + "/" },
+    referer: site + "/",
   });
   const sources = [];
   const re =
@@ -644,9 +643,9 @@ export function parseHanimeRelated(html, site, selfId) {
 
 export async function relatedHanime(page) {
   const site = srcHanimeSite().replace(/\/$/, "");
-  const html = await fetchText(page, {
+  const html = await fetchTextResilient(page, {
     timeout: 18000,
-    headers: { ...UA, accept: "text/html", referer: site + "/" },
+    referer: site + "/",
   });
   const self = ((page.match(/[?&]v=(\d+)/) || [])[1] || "");
   return parseHanimeRelated(html, site, self);

@@ -58,6 +58,34 @@ export async function fetchTextBrowser(url, opts = {}) {
   return fetchText(url, { ...opts, headers });
 }
 
+/**
+ * 直连失败（常见于 AWS IP 被源站/CDN 403）时，经 r.jina.ai 拉完整 HTML。
+ */
+export async function fetchTextResilient(url, opts = {}) {
+  try {
+    return await fetchTextBrowser(url, opts);
+  } catch (e) {
+    const msg = String((e && e.message) || e);
+    if (!/HTTP 403|HTTP 503|HTTP 429|HTTP 1020|ECONNRESET|aborted/i.test(msg)) {
+      throw e;
+    }
+  }
+  const relay = "https://r.jina.ai/" + String(url);
+  const html = await fetchText(relay, {
+    timeout: Math.max(opts.timeout || 0, 45000),
+    headers: {
+      "user-agent":
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      accept: "text/html,*/*",
+      "x-return-format": "html",
+    },
+  });
+  if (!html || html.length < 200) {
+    throw new Error("relay empty for " + url);
+  }
+  return html;
+}
+
 /** Follow redirects; return final URL (useful for CDN dload links). */
 export async function fetchFinalUrl(url, opts = {}) {
   const timeout = opts.timeout || 12000;

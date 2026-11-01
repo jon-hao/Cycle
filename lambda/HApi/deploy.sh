@@ -163,7 +163,7 @@ if aws lambda get-function --function-name "$FUNC" --region "$REGION" >/dev/null
   aws lambda update-function-configuration \
     --function-name "$FUNC" \
     --runtime nodejs22.x \
-    --timeout 60 \
+    --timeout 90 \
     --memory-size 512 \
     --environment "$ENV_JSON" \
     --region "$REGION" >/dev/null
@@ -175,7 +175,7 @@ else
     --role "$ROLE_ARN" \
     --handler index.handler \
     --zip-file "fileb://${ZIP}" \
-    --timeout 60 \
+    --timeout 90 \
     --memory-size 512 \
     --environment "$ENV_JSON" \
     --region "$REGION" >/dev/null
