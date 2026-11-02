@@ -300,20 +300,52 @@ function missavQualitiesFromHtml(html) {
   ];
 }
 
+function missavEmbedFromHtml(html) {
+  const text = String(html || "");
+  const re = /<iframe[^>]+src=["'](https?:\/\/[^"']+)["']/gi;
+  let m;
+  while ((m = re.exec(text))) {
+    const src = m[1];
+    if (
+      /javplayer|masterzzz|filemoon|streamtape|doodstream|\bvoe\.|embed|player/i.test(
+        src
+      )
+    ) {
+      return src;
+    }
+  }
+  const data =
+    text.match(
+      /id=["']player["'][^>]*data-(?:src|url)=["'](https?:\/\/[^"']+)["']/i
+    ) ||
+    text.match(
+      /data-(?:src|url)=["'](https?:\/\/[^"']*(?:player|embed)[^"']*)["']/i
+    );
+  return data ? data[1] : null;
+}
+
 export async function resolveMissav(page) {
   const site = srcMissavSite().replace(/\/$/, "");
   const html = await fetchTextResilient(page, {
     timeout: 18000,
     referer: site + "/dm265/en",
   });
+  const embed = missavEmbedFromHtml(html);
   const uuid = missavUuidFromHtml(html);
   if (!uuid) {
-    return { stream: null, hls: null, quality: null, embed: null };
+    // 没有直链时仍返回源站页，前端用 MissAV 自有播放器
+    return {
+      stream: null,
+      hls: null,
+      quality: null,
+      embed: embed || page || null,
+      proxy: false,
+    };
   }
   const quals = missavQualitiesFromHtml(html)
     .map((q) => ({ q, h: qualityHeight(q) }))
     .sort((a, b) => b.h - a.h);
-  // 机房 IP 常被 surrit CF 拦截；仍返回直链，由前端经 hmedia（impit）同源代理播放
+  // 机房 IP 常被 surrit CF 拦截；前端优先 iframe 源站播放器，直链仅作备用
   const best = quals[0];
   const q = (best && best.q) || "1080p";
   const h = (best && best.h) || qualityHeight(q);
@@ -324,7 +356,7 @@ export async function resolveMissav(page) {
     stream: url,
     hls: master,
     quality: label,
-    embed: null,
+    embed: embed || page || null,
     proxy: true,
   };
 }
