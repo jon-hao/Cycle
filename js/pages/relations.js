@@ -276,19 +276,33 @@ window.CyclePages.relations = (function () {
     let period = asset.period || "1y";
     let current = analysis;
     let chartCtl = null;
+    let periodBusy = false;
 
-    function periodBtns() {
-      return ["1y", "10y", "30y"]
-        .map((p) => {
-          const label =
-            p === "1y"
-              ? window.t("relationsPeriod1y")
-              : p === "10y"
-                ? window.t("relationsPeriod10y")
-                : window.t("relationsPeriod30y");
-          return `<button type="button" class="btn tiny ${period === p ? "active" : ""}" data-period="${p}">${label}</button>`;
-        })
-        .join("");
+    function periodOptions() {
+      return [
+        { value: "1y", label: window.t("relationsPeriod1y") },
+        { value: "10y", label: window.t("relationsPeriod10y") },
+        { value: "30y", label: window.t("relationsPeriod30y") },
+      ];
+    }
+
+    async function applyPeriod(next) {
+      if (!next || next === period || periodBusy) return;
+      periodBusy = true;
+      period = next;
+      asset.period = period;
+      const sheet = document.getElementById("sheet");
+      if (sheet) {
+        const note = sheet.querySelector(".rel-ai-note");
+        if (note) note.textContent = window.t("relationsLoading");
+      }
+      try {
+        current = await analyzeAsset(asset);
+        if (typeof onPeriodChange === "function") onPeriodChange(asset, current);
+        paintModal();
+      } finally {
+        periodBusy = false;
+      }
     }
 
     function paintModal() {
@@ -311,7 +325,10 @@ window.CyclePages.relations = (function () {
           <h2 class="card-title">${escapeHtml(assetName(asset))}</h2>
           <button type="button" class="icon-btn" data-close>×</button>
         </div>
-        <div class="rel-period-row">${periodBtns()}</div>
+        <div class="rel-period-row">
+          <span class="card-label">${window.t("kSpan")}</span>
+          <div class="sq-select rel-period-select" id="relPeriodSelect" data-value="${period}"></div>
+        </div>
         <canvas class="chart rel-detail-chart" id="relDetailChart" height="260"></canvas>
         <div class="rel-detail-factors">
           <h3 class="card-label">${window.t("relationsFactors")}</h3>
@@ -321,6 +338,13 @@ window.CyclePages.relations = (function () {
         <p class="tiny muted">${window.t("relationsAiNote")}</p>
       `);
 
+      const periodEl = document.getElementById("relPeriodSelect");
+      if (periodEl && window.CycleSelect) {
+        window.CycleSelect.mount(periodEl, periodOptions(), period, (v) => {
+          applyPeriod(v);
+        });
+      }
+
       requestAnimationFrame(() => {
         const canvas = document.getElementById("relDetailChart");
         if (chartCtl && chartCtl.destroy) chartCtl.destroy();
@@ -328,23 +352,6 @@ window.CyclePages.relations = (function () {
           normalize: true,
           markers: current.markers || [],
           xTicks: 6,
-        });
-      });
-
-      document.querySelectorAll("[data-period]").forEach((btn) => {
-        btn.addEventListener("click", async () => {
-          const next = btn.dataset.period;
-          if (next === period) return;
-          period = next;
-          asset.period = period;
-          const sheet = document.getElementById("sheet");
-          if (sheet) {
-            const note = sheet.querySelector(".rel-ai-note");
-            if (note) note.textContent = window.t("relationsLoading");
-          }
-          current = await analyzeAsset(asset);
-          if (typeof onPeriodChange === "function") onPeriodChange(asset, current);
-          paintModal();
         });
       });
     }

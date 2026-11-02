@@ -2179,14 +2179,13 @@ form.login-card[hidden] {
 
 .rel-period-row {
   display: flex;
-  gap: 8px;
+  align-items: center;
+  gap: 10px;
   margin: 0 0 10px;
 }
 
-.rel-period-row .btn.active {
-  border-color: var(--brand);
-  color: var(--brand);
-  font-weight: 700;
+.rel-period-select {
+  min-width: 110px;
 }
 
 .rel-detail-chart {
