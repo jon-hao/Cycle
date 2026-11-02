@@ -199,7 +199,6 @@ window.CyclePages.data = (function () {
       <div class="sheet-head"><h2 class="card-title">${window.t("kondratiev")}</h2><button type="button" class="icon-btn" data-close>×</button></div>
       ${spanRow}
       <canvas class="chart" id="waveChart" height="220"></canvas>
-      <div class="ai-host" id="aiWaveHost"></div>
     `);
     requestAnimationFrame(() => {
       let chartCtl = null;
@@ -236,20 +235,7 @@ window.CyclePages.data = (function () {
           });
         }
       }
-
-      window.CycleAIUI.mount(
-        document.getElementById("aiWaveHost"),
-        "wave",
-        Object.assign(
-          {
-            waveId: k.wave.id,
-            phase: window.CycleKondratiev.phaseLabel(k.phaseKey),
-            progress: (k.progress * 100).toFixed(0),
-            mode,
-          },
-          aiPayload || {}
-        )
-      );
+      void aiPayload;
     });
   }
 
@@ -271,7 +257,6 @@ window.CyclePages.data = (function () {
       <div class="sheet-head"><h2 class="card-title">${title}</h2><button type="button" class="icon-btn" data-close>×</button></div>
       ${extraHtml || ""}
       <canvas class="chart" id="metricChart" height="220"></canvas>
-      <div class="ai-host" id="aiMetricHost"></div>
     `);
     requestAnimationFrame(() => {
       window.CycleCharts.lineChart(
@@ -286,7 +271,6 @@ window.CyclePages.data = (function () {
           chartOpts || {}
         )
       );
-      window.CycleAIUI.mount(document.getElementById("aiMetricHost"), "macro", aiPayload);
       const sm = document.getElementById("subMeet");
       if (sm && aiPayload && aiPayload._next) {
         sm.addEventListener("click", (ev) => {
@@ -323,7 +307,6 @@ window.CyclePages.data = (function () {
         </div>
         <canvas class="chart" id="metricChart" height="220"></canvas>
       </div>
-      <div class="ai-host" id="aiMetricHost"></div>
     `);
     requestAnimationFrame(() => {
       window.CycleCharts.lineChart(document.getElementById("metricChart"), fg.history, {
@@ -333,7 +316,7 @@ window.CyclePages.data = (function () {
         color: "#3d8bfd",
         padL: 40,
       });
-      window.CycleAIUI.mount(document.getElementById("aiMetricHost"), "macro", aiPayload);
+      void aiPayload;
     });
   }
 
@@ -350,8 +333,19 @@ window.CyclePages.data = (function () {
     return Object.assign({}, base, { focus: focus || null });
   }
 
+  function countryOptions() {
+    return [
+      { value: "US", label: window.t("countryUS"), flag: "🇺🇸" },
+      { value: "CN", label: window.t("countryCN"), flag: "🇨🇳" },
+    ];
+  }
+
   function skeleton() {
     return `
+      <div class="data-country-bar">
+        <span class="card-label">${window.t("country")}</span>
+        <div class="sq-select" id="dataCountrySelect" data-value="${window.CycleState.country}"></div>
+      </div>
       <div class="hero-row">
         <section class="panel k-panel skel-card">
           <div class="panel-head"><h2 class="card-title">${window.t("kondratiev")}</h2></div>
@@ -424,6 +418,10 @@ window.CyclePages.data = (function () {
     const fgVal = fg ? Math.round(fg.value) : null;
     const trend = fg ? fgTrend(fg.history) : 0;
     root.innerHTML = `
+      <div class="data-country-bar">
+        <span class="card-label">${window.t("country")}</span>
+        <div class="sq-select" id="dataCountrySelect" data-value="${code}"></div>
+      </div>
       <div class="hero-row">
         <section class="panel k-panel" id="kPanel">
           <div class="panel-head">
@@ -591,6 +589,17 @@ window.CyclePages.data = (function () {
           : ""
       }
     `;
+
+    const countryEl = root.querySelector("#dataCountrySelect");
+    if (countryEl) {
+      window.CycleSelect.mount(countryEl, countryOptions(), code, (v) => {
+        if (v === window.CycleState.country) return;
+        window.CycleState.country = v;
+        localStorage.setItem("cycle-country", v);
+        mem = null;
+        render(root, { force: true });
+      });
+    }
 
     window.CycleSelect.mount(
       root.querySelector("#kModelSelect"),

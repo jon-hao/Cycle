@@ -785,7 +785,112 @@ window.CycleAPI = (function () {
     if (!proxied || !proxied.length) throw new Error("news empty");
     const ranked = proxied.slice().sort((a, b) => (a.rank || 0) - (b.rank || 0));
     const tagged = refineNewsCountries(ranked);
+    if (!country || country === "ALL" || country === "GLOBAL") {
+      return tagged.slice(0, 60);
+    }
     return filterNewsByCountry(tagged, country).slice(0, 60);
+  }
+
+  async function yahooCorsJson(url) {
+    const proxied =
+      "https://corsproxy.io/?" + encodeURIComponent(url);
+    const res = await fetch(proxied, { credentials: "omit" });
+    if (!res.ok) throw new Error("yahoo proxy " + res.status);
+    return res.json();
+  }
+
+  function mapYahooQuote(q) {
+    if (!q || !q.symbol) return null;
+    return {
+      symbol: q.symbol,
+      name: q.shortname || q.longname || q.symbol,
+      type: q.quoteType || q.typeDisp || "",
+      exchange: q.exchDisp || q.exchange || "",
+    };
+  }
+
+  function parseYahooChart(data, symbol) {
+    const result = data && data.chart && data.chart.result && data.chart.result[0];
+    if (!result) return null;
+    const ts = result.timestamp || [];
+    const quote =
+      (result.indicators && result.indicators.quote && result.indicators.quote[0]) ||
+      {};
+    const closes = quote.close || [];
+    const meta = result.meta || {};
+    const series = [];
+    for (let i = 0; i < ts.length; i++) {
+      const v = closes[i];
+      if (v == null || Number.isNaN(Number(v))) continue;
+      const d = new Date(ts[i] * 1000);
+      const y = d.getUTCFullYear();
+      const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+      const day = String(d.getUTCDate()).padStart(2, "0");
+      series.push({ d: `${y}-${m}-${day}`, v: Number(v) });
+    }
+    return {
+      flow: "assets",
+      action: "history",
+      symbol,
+      name: meta.shortName || meta.longName || symbol,
+      currency: meta.currency || null,
+      series,
+    };
+  }
+
+  function yahooRangeParams(range) {
+    const r = String(range || "1y").toLowerCase();
+    if (r === "10y" || r === "10") return { range: "10y", interval: "1wk" };
+    if (r === "30y" || r === "30" || r === "max") {
+      const now = Math.floor(Date.now() / 1000);
+      return {
+        period1: now - Math.floor(30 * 365.25 * 24 * 3600),
+        period2: now,
+        interval: "1wk",
+      };
+    }
+    return { range: "1y", interval: "1d" };
+  }
+
+  async function searchAssets(query) {
+    const q = String(query || "").trim();
+    if (!q) return [];
+    try {
+      const d = await hapi("assets", { action: "search", q }, { timeout: 20000 });
+      if (d && Array.isArray(d.results)) return d.results;
+    } catch (_) {}
+    const url =
+      "https://query1.finance.yahoo.com/v1/finance/search?q=" +
+      encodeURIComponent(q) +
+      "&quotesCount=16&newsCount=0&listsCount=0";
+    const data = await yahooCorsJson(url);
+    return (data.quotes || []).map(mapYahooQuote).filter(Boolean).slice(0, 16);
+  }
+
+  async function fetchAssetHistory(symbol, range) {
+    const sym = String(symbol || "").trim();
+    if (!sym) return null;
+    try {
+      const d = await hapi(
+        "assets",
+        { action: "history", symbol: sym, range: range || "1y" },
+        { timeout: 55000 }
+      );
+      if (d && Array.isArray(d.series)) return d;
+    } catch (_) {}
+    const yr = yahooRangeParams(range);
+    let url =
+      "https://query1.finance.yahoo.com/v8/finance/chart/" +
+      encodeURIComponent(sym) +
+      "?interval=" +
+      encodeURIComponent(yr.interval);
+    if (yr.period1 != null) {
+      url += "&period1=" + yr.period1 + "&period2=" + yr.period2;
+    } else {
+      url += "&range=" + encodeURIComponent(yr.range);
+    }
+    const data = await yahooCorsJson(url);
+    return parseYahooChart(data, sym);
   }
 
   function mapCalendarEvent(e, source) {
@@ -829,6 +934,23 @@ window.CycleAPI = (function () {
     requireHapi();
     const from = fromISO.slice(0, 10);
     const to = toISO.slice(0, 10);
+    if (!country || country === "ALL" || country === "GLOBAL") {
+      const [us, cn] = await Promise.all([
+        hapi("calendar", { from, to, country: "US" }, { timeout: 55000 }),
+        hapi("calendar", { from, to, country: "CN" }, { timeout: 55000 }),
+      ]);
+      const merge = [];
+      const seen = new Set();
+      [...((us && us.events) || []), ...((cn && cn.events) || [])].forEach((e) => {
+        if (!e) return;
+        const key = String(e.id || e.title || "") + "|" + String(e.datetime || "");
+        if (seen.has(key)) return;
+        seen.add(key);
+        merge.push(e);
+      });
+      merge.sort((a, b) => new Date(a.datetime) - new Date(b.datetime));
+      return merge;
+    }
     const code = country === "CN" ? "CN" : "US";
     const d = await hapi(
       "calendar",
@@ -869,6 +991,8 @@ window.CycleAPI = (function () {
     fetchImportantNews,
     clearNewsMemo,
     searchWeb,
+    searchAssets,
+    fetchAssetHistory,
     fetchCalendar,
     witchingDates,
     getToken,

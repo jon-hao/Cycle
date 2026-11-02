@@ -16,7 +16,7 @@ window.CycleState = {
   })(),
   theme: localStorage.getItem("cycle-theme") || "light",
   kModel: "realtime",
-  page: "news",
+  page: "data",
   autoRefresh: false,
 };
 
@@ -28,6 +28,7 @@ window.CycleState = {
     "cycle-theme",
     "cycle-token",
     "cycle-email",
+    "cycle-relations-pins",
   ]);
   try {
     const drop = [];
@@ -195,21 +196,16 @@ window.CycleSelect = (function () {
     backToLogin: document.getElementById("backToLogin"),
     loginLang: document.getElementById("loginLangSelect"),
     appShell: document.getElementById("appShell"),
-    country: document.getElementById("countrySelect"),
     lang: document.getElementById("langSelect"),
     themeBtn: document.getElementById("themeBtn"),
     main: document.getElementById("main"),
     modal: document.getElementById("modal"),
     footer: document.getElementById("siteFooter"),
     indicator: document.getElementById("navIndicator"),
-    modelFab: document.getElementById("modelFab"),
-    modelFabLabel: document.getElementById("modelFabLabel"),
-    modelFabRing: document.getElementById("modelFabRing"),
     refreshFab: document.getElementById("refreshFab"),
     ptr: document.getElementById("ptrIndicator"),
   };
 
-  let countryCtl = null;
   let langCtl = null;
   let loginLangCtl = null;
   let refreshing = false;
@@ -217,13 +213,6 @@ window.CycleSelect = (function () {
   let appReady = false;
   // 金十快讯近实时；3 分钟兼顾新鲜度与 Lambda 免费额度（开开关约 480 次/页/天）
   const AUTO_MS = 3 * 60 * 1000;
-
-  function countryOptions() {
-    return [
-      { value: "US", label: window.t("countryUS"), flag: "🇺🇸" },
-      { value: "CN", label: window.t("countryCN"), flag: "🇨🇳" },
-    ];
-  }
 
   function langOptions() {
     return [
@@ -260,9 +249,6 @@ window.CycleSelect = (function () {
       node.title = title;
       node.setAttribute("aria-label", title);
     });
-    if (countryCtl) {
-      countryCtl.refresh(countryOptions(), window.CycleState.country);
-    }
     if (langCtl) {
       langCtl.refresh(langOptions(), window.CycleState.lang);
     }
@@ -270,33 +256,11 @@ window.CycleSelect = (function () {
       loginLangCtl.refresh(langOptions(), window.CycleState.lang);
     }
     if (appReady) {
-      paintModelFab(window.CycleLLM.getStatus());
       paintRefreshFab();
       moveIndicator(false);
       if (opts && opts.softPage) {
         renderPage(false, { soft: true });
       }
-    }
-  }
-
-  function paintModelFab(st) {
-    if (!els.modelFab) return;
-    const status = st.status || "idle";
-    els.modelFab.dataset.status = status;
-    const pct = Math.round((st.progress || 0) * 100);
-    if (els.modelFabRing) {
-      els.modelFabRing.style.setProperty("--p", String(st.progress || 0));
-    }
-    els.modelFabLabel.textContent = "AI";
-    if (status === "ready") {
-      els.modelFab.title = window.t("modelReady");
-    } else if (status === "downloading") {
-      els.modelFab.title =
-        window.t("modelDownloading") + " " + pct + "%" + (st.text ? " · " + st.text : "");
-    } else if (status === "error") {
-      els.modelFab.title = window.t("modelError") + (st.text ? ": " + st.text : "");
-    } else {
-      els.modelFab.title = window.t("modelDownload");
     }
   }
 
@@ -325,20 +289,6 @@ window.CycleSelect = (function () {
         renderPage(false, { force: true });
       }, AUTO_MS);
     }
-  }
-
-  function wireModelFab() {
-    if (!els.modelFab) return;
-    window.CycleLLM.onState(paintModelFab);
-    els.modelFab.addEventListener("click", () => {
-      const st = window.CycleLLM.getStatus();
-      if (st.status === "ready") {
-        window.CycleAgent.open();
-        return;
-      }
-      if (st.status === "downloading") return;
-      window.CycleLLM.startDownload();
-    });
   }
 
   function wireRefreshFab() {
@@ -428,6 +378,7 @@ window.CycleSelect = (function () {
   }
 
   let pageRenderSeq = 0;
+  const VALID_PAGES = ["data", "relations", "insight"];
 
   async function renderPage(withFx, opts) {
     const seq = ++pageRenderSeq;
@@ -513,17 +464,6 @@ window.CycleSelect = (function () {
   }
 
   function wire() {
-    countryCtl = window.CycleSelect.mount(
-      els.country,
-      countryOptions(),
-      window.CycleState.country,
-      (v) => {
-        window.CycleState.country = v;
-        localStorage.setItem("cycle-country", v);
-        renderPage(false, { force: true });
-      }
-    );
-
     langCtl = window.CycleSelect.mount(
       els.lang,
       langOptions(),
@@ -551,12 +491,16 @@ window.CycleSelect = (function () {
     });
 
     window.addEventListener("hashchange", () => {
-      const h = (location.hash || "#news").replace("#", "");
-      if (["data", "news", "calendar"].includes(h)) {
-        if (window.CycleState.page !== h) {
-          window.CycleState.page = h;
-          renderPage(true, { soft: true });
-        }
+      const h = (location.hash || "#data").replace("#", "");
+      const page =
+        VALID_PAGES.includes(h)
+          ? h
+          : h === "news" || h === "calendar"
+            ? "insight"
+            : "data";
+      if (window.CycleState.page !== page) {
+        window.CycleState.page = page;
+        renderPage(true, { soft: true });
       }
     });
 
@@ -592,7 +536,6 @@ window.CycleSelect = (function () {
     if (!appReady) {
       applyTheme();
       wire();
-      wireModelFab();
       wireRefreshFab();
       wirePullToRefresh();
       appReady = true;
@@ -603,12 +546,18 @@ window.CycleSelect = (function () {
       window.CycleLLM.resumeIfNeeded();
     }
 
-    const h = (location.hash || "#news").replace("#", "");
-    window.CycleState.page = ["data", "news", "calendar"].includes(h)
+    const h = (location.hash || "#data").replace("#", "");
+    window.CycleState.page = VALID_PAGES.includes(h)
       ? h
-      : "news";
-    if (!location.hash || location.hash === "#") {
-      location.hash = "news";
+      : h === "news" || h === "calendar"
+        ? "insight"
+        : "data";
+    if (!location.hash || location.hash === "#" || !VALID_PAGES.includes(h)) {
+      if (h !== "news" && h !== "calendar") {
+        location.hash = "data";
+      } else {
+        location.hash = "insight";
+      }
     }
 
     await renderPage(false);

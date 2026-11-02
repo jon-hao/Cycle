@@ -28,6 +28,12 @@ window.CyclePages.news = (function () {
     return "news-rank";
   }
 
+  function countryBadge(code) {
+    const c = code === "CN" || code === "US" ? code : "GLOBAL";
+    const flag = c === "US" ? "🇺🇸" : c === "CN" ? "🇨🇳" : "🌐";
+    return `<span class="geo-tag" data-geo="${c}">${flag} ${window.t("country" + c)}</span>`;
+  }
+
   function paintList(box, list) {
     if (!box) return;
     if (!list || !list.length) {
@@ -37,9 +43,11 @@ window.CyclePages.news = (function () {
     box.innerHTML = list
       .map((n) => {
         const r = n.displayRank || n.rank || "·";
+        const geo = n.countryGuess || n.country || "GLOBAL";
         return `<article class="news-card" data-id="${encodeURIComponent(n.id)}">
           <div class="news-meta">
             <span class="${rankClass(r)}" aria-label="#${r}">${r}</span>
+            ${countryBadge(geo)}
             <time class="card-date">${formatTime(n.time)}</time>
           </div>
           <h3 class="card-title">${escapeHtml(n.title)}</h3>
@@ -57,7 +65,6 @@ window.CyclePages.news = (function () {
         if (!n) return;
         const r = n.displayRank || n.rank || "";
         const lang = window.CycleState.lang;
-        // 源头优先，其次金十详情
         const origin =
           n.originLink ||
           (n.link && !/flash\.jin10\.com/i.test(n.link) ? n.link : null) ||
@@ -66,12 +73,14 @@ window.CyclePages.news = (function () {
           "";
 
         const rawBody = n.contentRaw || n.summaryRaw || n.content || n.summary || "";
+        const geo = n.countryGuess || n.country || "GLOBAL";
         window.CycleUI.openModal(`
           <div class="sheet-head">
             <h2 class="card-title"><span class="${rankClass(r)}">${r}</span> ${escapeHtml(n.title)}</h2>
             <button type="button" class="icon-btn" data-close>×</button>
           </div>
           <div class="news-modal-meta">
+            ${countryBadge(geo)}
             <time class="card-date">${formatTime(n.time)}</time>
             <span id="newsExtra">${
               origin
@@ -86,7 +95,6 @@ window.CyclePages.news = (function () {
           <p class="card-content news-detail-body" id="newsSummary">${escapeHtml(
             rawBody
           )}</p>
-          <div class="ai-host" id="aiNewsHost"></div>
         `);
 
         let body = rawBody;
@@ -97,12 +105,6 @@ window.CyclePages.news = (function () {
         }
         const sumEl = document.getElementById("newsSummary");
         if (sumEl) sumEl.textContent = body || "";
-
-        window.CycleAIUI.mount(document.getElementById("aiNewsHost"), "news", {
-          title: n.title,
-          summary: body || "",
-          focus: n.title,
-        });
       });
     });
   }
@@ -111,28 +113,32 @@ window.CyclePages.news = (function () {
     const seq = ++renderSeq;
     const soft = opts && opts.soft;
     const force = opts && opts.force;
-    const country = window.CycleState.country;
     const lang = window.CycleState.lang;
+    const embedded = !!(opts && opts.embedded);
 
-    root.innerHTML = `
-      <section class="panel">
-        <div class="panel-head"><h2 class="card-title">${window.t("navNews")}</h2></div>
-        <div class="news-list" id="newsList">
-          <div class="skel-block skel-list"></div>
-        </div>
-      </section>`;
+    if (!embedded) {
+      root.innerHTML = `
+        <section class="panel">
+          <div class="panel-head"><h2 class="card-title">${window.t("navNews")}</h2></div>
+          <div class="news-list" id="newsList">
+            <div class="skel-block skel-list"></div>
+          </div>
+        </section>`;
+    } else {
+      root.innerHTML = `<div class="news-list" id="newsList"><div class="skel-block skel-list"></div></div>`;
+    }
 
     const box = root.querySelector("#newsList");
     let raw = null;
-    if (soft && !force && mem && mem.country === country && mem.list) {
+    if (soft && !force && mem && mem.list) {
       raw = mem.list;
     } else {
       try {
         if (force && window.CycleAPI.clearNewsMemo) {
           window.CycleAPI.clearNewsMemo();
         }
-        raw = await window.CycleAPI.fetchImportantNews(country);
-        mem = { country, list: raw };
+        raw = await window.CycleAPI.fetchImportantNews("ALL");
+        mem = { list: raw };
       } catch (e) {
         if (seq !== renderSeq) return;
         box.innerHTML = `<div class="empty">${window.t("loadError")}<br/><span class="tiny">${escapeHtml(
@@ -173,8 +179,7 @@ window.CyclePages.news = (function () {
       })
     ).then((done) => {
       if (seq !== renderSeq) return;
-      if (window.CycleState.page !== "news") return;
-      if (window.CycleState.country !== country) return;
+      if (window.CycleState.page !== "insight" && window.CycleState.page !== "news") return;
       paintList(box, done);
       wireCards(root, done);
     });

@@ -68,6 +68,18 @@ export async function handleCatalog() {
         returns: "web search snippets for agents",
       },
       {
+        id: "assets",
+        method: ["GET", "POST"],
+        params: {
+          action: "search|history",
+          q: "string?",
+          symbol: "string?",
+          range: "1y|10y|30y?",
+          app: "string?",
+        },
+        returns: "Yahoo Finance symbol search + OHLCV history (server proxy)",
+      },
+      {
         id: "hauth",
         method: ["GET", "POST"],
         params: {

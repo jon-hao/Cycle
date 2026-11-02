@@ -559,5 +559,164 @@ window.CycleCharts = (function () {
     }
   }
 
-  return { lineChart, kondratievQuadrant, fearGreedGauge };
+  /** 多序列折线；points 已对齐时可传 normalize:true 将每条起点设为 100 */
+  function multiLineChart(canvas, seriesList, opts) {
+    const o = Object.assign(
+      {
+        padL: 44,
+        padR: 14,
+        padT: 28,
+        padB: 36,
+        xTicks: 5,
+        normalize: true,
+        markers: [],
+      },
+      opts || {}
+    );
+    const list = (seriesList || []).filter((s) => s && s.points && s.points.length);
+    if (!list.length) return { destroy() {} };
+
+    function normalize(points) {
+      if (!o.normalize || !points.length) return points.slice();
+      const base = points[0].v;
+      if (!base) return points.map((p) => ({ d: p.d, v: p.v }));
+      return points.map((p) => ({ d: p.d, v: (p.v / base) * 100 }));
+    }
+
+    const prepared = list.map((s, i) => ({
+      label: s.label || s.id || String(i),
+      color:
+        s.color ||
+        ["#0f6e56", "#3d8bfd", "#e4572e", "#b08900", "#7c5cbf", "#2a9d8f"][i % 6],
+      points: normalize(s.points),
+    }));
+
+    const ctx = canvas.getContext("2d");
+    let raf = 0;
+    let destroyed = false;
+    const state = { t0: performance.now() };
+
+    function draw() {
+      if (destroyed) return;
+      const dpr = window.devicePixelRatio || 1;
+      const w = canvas.clientWidth || 320;
+      const h = canvas.clientHeight || 220;
+      canvas.width = Math.floor(w * dpr);
+      canvas.height = Math.floor(h * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, w, h);
+
+      const allVals = prepared.flatMap((s) => s.points.map((p) => p.v));
+      const min = Math.min(...allVals);
+      const max = Math.max(...allVals);
+      const span = max - min || 1;
+      const padL = o.padL;
+      const padR = o.padR;
+      const padT = o.padT;
+      const padB = o.padB;
+      const iw = w - padL - padR;
+      const ih = h - padT - padB;
+      const ink = themeColor("--ink", "#111");
+      const muted = themeColor("--muted", "#888");
+      const line = themeColor("--line", "#ccc");
+      const yAt = (v) => padT + ih - ((v - min) / span) * ih;
+
+      ctx.strokeStyle = line;
+      ctx.lineWidth = 1;
+      for (let i = 0; i <= 4; i++) {
+        const y = padT + (ih * i) / 4;
+        ctx.beginPath();
+        ctx.moveTo(padL, y);
+        ctx.lineTo(w - padR, y);
+        ctx.stroke();
+      }
+
+      const n = Math.max(...prepared.map((s) => s.points.length));
+      prepared.forEach((s) => {
+        const pts = s.points;
+        ctx.beginPath();
+        pts.forEach((p, i) => {
+          const x = padL + (iw * i) / Math.max(1, pts.length - 1);
+          const y = yAt(p.v);
+          if (i) ctx.lineTo(x, y);
+          else ctx.moveTo(x, y);
+        });
+        ctx.strokeStyle = s.color;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      });
+
+      (o.markers || []).forEach((m) => {
+        if (!m || m.idx == null) return;
+        const x = padL + (iw * m.idx) / Math.max(1, n - 1);
+        ctx.beginPath();
+        ctx.moveTo(x, padT);
+        ctx.lineTo(x, padT + ih);
+        ctx.strokeStyle = themeColor("--accent", "#e4572e");
+        ctx.setLineDash([3, 3]);
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
+        ctx.setLineDash([]);
+        if (m.label) {
+          ctx.fillStyle = themeColor("--accent", "#e4572e");
+          ctx.font = "10px 'Microsoft YaHei', sans-serif";
+          ctx.textAlign = "center";
+          ctx.fillText(String(m.label).slice(0, 12), x, padT + 10);
+        }
+      });
+
+      ctx.fillStyle = muted;
+      ctx.font = "11px 'Microsoft YaHei', sans-serif";
+      ctx.textAlign = "right";
+      for (let g = 0; g <= 4; g++) {
+        const val = max - (span * g) / 4;
+        const y = padT + (ih * g) / 4;
+        ctx.fillText(val.toFixed(o.normalize ? 0 : 1), padL - 6, y + 4);
+      }
+
+      const main = prepared[0];
+      if (main && main.points.length) {
+        const ticks = pickXTicks(main.points.length, o.xTicks);
+        ctx.textAlign = "center";
+        ticks.forEach((ti) => {
+          const p = main.points[ti];
+          if (!p) return;
+          const x = padL + (iw * ti) / Math.max(1, main.points.length - 1);
+          ctx.fillText(formatTickLabel(p.d), x, padT + ih + 16);
+        });
+      }
+
+      let lx = padL;
+      const ly = 14;
+      ctx.font = "11px 'Microsoft YaHei', sans-serif";
+      ctx.textAlign = "left";
+      prepared.forEach((s) => {
+        ctx.fillStyle = s.color;
+        ctx.fillRect(lx, ly - 7, 10, 3);
+        ctx.fillStyle = ink;
+        const lab = String(s.label).slice(0, 10);
+        ctx.fillText(lab, lx + 14, ly);
+        lx += ctx.measureText(lab).width + 28;
+      });
+    }
+
+    function loop() {
+      if (destroyed) return;
+      draw();
+      raf = requestAnimationFrame(loop);
+    }
+    // 静态图不需要持续 raf；画一次即可
+    draw();
+    void state;
+
+    return {
+      destroy() {
+        destroyed = true;
+        if (raf) cancelAnimationFrame(raf);
+      },
+      redraw: draw,
+    };
+  }
+
+  return { lineChart, multiLineChart, kondratievQuadrant, fearGreedGauge };
 })();

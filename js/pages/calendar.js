@@ -151,6 +151,12 @@ window.CyclePages.calendar = (function () {
     });
   }
 
+  function countryBadge(code) {
+    const c = code === "CN" || code === "US" ? code : "GLOBAL";
+    const flag = c === "US" ? "🇺🇸" : c === "CN" ? "🇨🇳" : "🌐";
+    return `<span class="geo-tag" data-geo="${c}">${flag} ${window.t("country" + c)}</span>`;
+  }
+
   function eventRow(e) {
     const time = window.CycleTZ.formatTime(e.datetime);
     const title = trTitle(e.title, e);
@@ -162,6 +168,7 @@ window.CyclePages.calendar = (function () {
     return `<div class="cal-item" data-id="${encodeURIComponent(e.id)}">
       <div class="cal-item-main">
         <span class="cal-time card-date">${time}</span>
+        ${countryBadge(e.country)}
         <span class="cal-title card-title">${escapeHtml(title)}</span>
         ${nums}
       </div>
@@ -257,6 +264,8 @@ window.CyclePages.calendar = (function () {
   async function render(root, opts) {
     const soft = opts && opts.soft;
     const force = opts && opts.force;
+    const embedded = !!(opts && opts.embedded);
+    const allCountries = !!(opts && opts.allCountries);
     const seq = ++renderSeq;
 
     async function paint() {
@@ -275,8 +284,7 @@ window.CyclePages.calendar = (function () {
           formatHeading(from).slice(0, 10) + " — " + formatHeading(addDays(to, -1)).slice(0, 10);
       }
 
-      root.innerHTML = `
-        <section class="panel">
+      const toolbar = `
           <div class="panel-head cal-toolbar">
             <div class="seg seg-compact">
               <button type="button" data-view="day" class="${view === "day" ? "active" : ""}">${window.t("day")}</button>
@@ -288,12 +296,18 @@ window.CyclePages.calendar = (function () {
               <button type="button" class="icon-btn" id="next">›</button>
               <button type="button" class="btn tiny today-btn" id="todayBtn">${window.t("today")}</button>
             </div>
-          </div>
+          </div>`;
+
+      root.innerHTML = embedded
+        ? `${toolbar}<div id="calBody"><div class="skel-block skel-list"></div></div>`
+        : `
+        <section class="panel">
+          ${toolbar}
           <div id="calBody"><div class="skel-block skel-list"></div></div>
         </section>
       `;
 
-      const country = window.CycleState.country;
+      const country = allCountries ? "ALL" : window.CycleState.country;
       const memKey =
         from.toISOString().slice(0, 10) +
         "|" +
@@ -335,7 +349,7 @@ window.CyclePages.calendar = (function () {
         }
         if (seq !== renderSeq) return;
 
-        if (country === "US") {
+        if (country === "US" || country === "ALL") {
           const have = new Set(
             events.filter((e) => e.tag === "witching").map((e) => String(e.id))
           );
@@ -386,7 +400,7 @@ window.CyclePages.calendar = (function () {
                           e.id
                         )}"><span class="card-date">${window.CycleTZ.formatTime(
                           e.datetime
-                        )}</span> <span class="card-title">${escapeHtml(
+                        )}</span> ${countryBadge(e.country)} <span class="card-title">${escapeHtml(
                           trTitle(e.title, e)
                         )}</span></button>`
                     )
