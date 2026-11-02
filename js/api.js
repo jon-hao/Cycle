@@ -911,7 +911,7 @@ window.CycleAPI = (function () {
           { action: "history", symbol: sym, range: range || "1y" },
           { timeout: 55000 }
         );
-        if (d && Array.isArray(d.series)) return d;
+        if (d && Array.isArray(d.series) && d.series.length) return d;
       } catch (_) {}
     }
     const yr = yahooRangeParams(range);
@@ -925,8 +925,12 @@ window.CycleAPI = (function () {
     } else {
       url += "&range=" + encodeURIComponent(yr.range);
     }
-    const data = await yahooCorsJson(url);
-    return parseYahooChart(data, sym);
+    try {
+      const data = await yahooCorsJson(url);
+      const parsed = parseYahooChart(data, sym);
+      if (parsed && parsed.series && parsed.series.length) return parsed;
+    } catch (_) {}
+    return null;
   }
 
   function mapCalendarEvent(e, source) {

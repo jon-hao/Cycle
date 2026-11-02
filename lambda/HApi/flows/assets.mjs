@@ -24,10 +24,23 @@ async function yahooGet(url) {
       "user-agent": UA,
     },
   });
-  if (!res.ok) {
-    throw new Error("yahoo " + res.status);
+  let data = null;
+  try {
+    data = await res.json();
+  } catch {
+    data = null;
   }
-  return res.json();
+  if (!res.ok) {
+    const desc =
+      (data && data.chart && data.chart.error && data.chart.error.description) ||
+      (data && data.error && (data.error.description || data.error)) ||
+      ("yahoo " + res.status);
+    const err = new Error(String(desc));
+    err.status = res.status;
+    err.data = data;
+    throw err;
+  }
+  return data;
 }
 
 function mapQuote(q) {
@@ -78,7 +91,19 @@ export async function handleAssets(payload) {
     } else {
       url += "&range=" + encodeURIComponent(yr.range);
     }
-    const data = await yahooGet(url);
+    let data = null;
+    try {
+      data = await yahooGet(url);
+    } catch (e) {
+      // 无效代码 / Yahoo 限流：返回空序列，避免整页 502
+      return {
+        flow: "assets",
+        action: "history",
+        symbol,
+        series: [],
+        error: String(e && e.message ? e.message : e),
+      };
+    }
     const result = data && data.chart && data.chart.result && data.chart.result[0];
     if (!result) {
       return {

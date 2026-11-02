@@ -20,7 +20,8 @@ window.CyclePages.relations = (function () {
     { id: "btc", symbol: "BTC=F", nameZh: "比特币期货主连", nameEn: "Bitcoin Futures", period: "1y" },
     { id: "tyx", symbol: "^TYX", nameZh: "美国30年期国债收益率", nameEn: "US 30Y Yield", period: "1y" },
     { id: "sse", symbol: "000001.SS", nameZh: "上证指数", nameEn: "SSE Composite", period: "1y" },
-    { id: "hi", symbol: "HSI=F", nameZh: "恒指期货主连", nameEn: "Hang Seng Futures", period: "1y" },
+    // Yahoo 无恒指期货连续合约，改用恒生指数 ^HSI
+    { id: "hi", symbol: "^HSI", nameZh: "恒生指数", nameEn: "Hang Seng Index", period: "1y" },
   ];
 
   const cache = new Map();
@@ -45,17 +46,30 @@ window.CyclePages.relations = (function () {
     return lang === "en" ? f.nameEn : f.nameZh;
   }
 
+  function normalizePin(a) {
+    const base = Object.assign({ period: "1y" }, a, {
+      period: (a && a.period) || "1y",
+    });
+    // 旧版错误代码迁移
+    if (base.symbol === "HSI=F" || base.symbol === "HI=F") {
+      base.symbol = "^HSI";
+      base.id = "hi";
+      base.nameZh = "恒生指数";
+      base.nameEn = "Hang Seng Index";
+      base.name = base.nameZh;
+    }
+    return base;
+  }
+
   function loadPins() {
     try {
       const raw = localStorage.getItem(PIN_KEY);
       if (raw) {
         const arr = JSON.parse(raw);
         if (Array.isArray(arr) && arr.length) {
-          return arr.map((a) =>
-            Object.assign({ period: "1y" }, a, {
-              period: a.period || "1y",
-            })
-          );
+          const next = arr.map(normalizePin);
+          savePins(next);
+          return next;
         }
       }
     } catch (_) {}
