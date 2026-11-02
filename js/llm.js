@@ -3,8 +3,18 @@
  * 状态仅存内存（不写 localStorage）。
  */
 window.CycleLLM = (function () {
-  // 浏览器 WebGPU：偏中文宏观/金融对话的体积与质量折中（WebLLM MLC 预制）
+  // 浏览器 WebGPU：偏中文宏观/金融对话（WebLLM MLC 预制）
+  const ACTIVE_MODEL = "Qwen2.5-3B-Instruct-q4f16_1-MLC";
   const MODEL_CANDIDATES = [
+    ACTIVE_MODEL,
+    "Qwen2.5-1.5B-Instruct-q4f16_1-MLC",
+    "Qwen3-0.6B-q4f16_1-MLC",
+    "Llama-3.2-1B-Instruct-q4f16_1-MLC",
+    "Qwen2.5-0.5B-Instruct-q4f16_1-MLC",
+  ];
+  // 升到 3B：下次打开清掉旧模型缓存，强制重新下载
+  const CACHE_EPOCH = "cycle-llm-v3-qwen25-3b";
+  const LEGACY_MODELS = [
     "Qwen2.5-1.5B-Instruct-q4f16_1-MLC",
     "Qwen3-0.6B-q4f16_1-MLC",
     "Llama-3.2-1B-Instruct-q4f16_1-MLC",
@@ -14,15 +24,56 @@ window.CycleLLM = (function () {
   let engine = null;
   let loading = null;
   let listeners = new Set();
+  let purgeOnce = null;
   let memState = {
     status: "idle",
     progress: 0,
     text: "",
-    model: MODEL_CANDIDATES[0],
+    model: ACTIVE_MODEL,
   };
 
   function settings() {
-    return {};
+    return { model: ACTIVE_MODEL };
+  }
+
+  async function purgeLegacyCaches(webllm) {
+    if (purgeOnce) return purgeOnce;
+    purgeOnce = (async () => {
+      let prev = "";
+      try {
+        prev = localStorage.getItem("cycle-llm-cache-epoch") || "";
+      } catch (_) {}
+      if (prev === CACHE_EPOCH) return;
+      writeState({
+        status: "downloading",
+        progress: 0,
+        text: "clearing-old-model",
+      });
+      for (const id of LEGACY_MODELS) {
+        try {
+          if (webllm && typeof webllm.deleteModelAllInfoInCache === "function") {
+            await webllm.deleteModelAllInfoInCache(id);
+          }
+        } catch (_) {}
+      }
+      try {
+        if (typeof caches !== "undefined" && caches.keys) {
+          const keys = await caches.keys();
+          await Promise.all(
+            keys.map((k) => {
+              if (/webllm|mlc-ai|qwen2\.5-1\.5|qwen3-0\.6|llama-3\.2-1b/i.test(k)) {
+                return caches.delete(k);
+              }
+              return null;
+            })
+          );
+        }
+      } catch (_) {}
+      try {
+        localStorage.setItem("cycle-llm-cache-epoch", CACHE_EPOCH);
+      } catch (_) {}
+    })();
+    return purgeOnce;
   }
 
   function readState() {
@@ -73,10 +124,12 @@ window.CycleLLM = (function () {
       writeState({ status: "downloading", progress: 0, text: "starting" });
       try {
         const webllm = await import("https://esm.run/@mlc-ai/web-llm@0.2.79");
-        const preferred = settings().model || readState().model;
-        const list = preferred
-          ? [preferred, ...MODEL_CANDIDATES.filter((m) => m !== preferred)]
-          : MODEL_CANDIDATES.slice();
+        await purgeLegacyCaches(webllm);
+        const preferred = ACTIVE_MODEL;
+        const list = [
+          preferred,
+          ...MODEL_CANDIDATES.filter((m) => m !== preferred),
+        ];
         let lastErr = null;
         for (const modelId of list) {
           try {

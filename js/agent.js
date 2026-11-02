@@ -81,7 +81,7 @@ window.CycleAgent = (function () {
   function needsWebSearch(q) {
     const t = String(q || "").trim();
     if (!t || isAffirmShort(t)) return false;
-    // 1.5B 依赖检索；实质问题一律联网
+    // 实质问题一律联网，给本地模型补最新信息
     return t.length >= 2;
   }
 
@@ -152,8 +152,8 @@ window.CycleAgent = (function () {
       window.CycleBoard && window.CycleBoard.agentContext
         ? window.CycleBoard.agentContext(lang)
         : contextSnippet();
-    // 1.5B 吃不下超长看板；检索优先，看板压缩
-    const boardBrief = String(board || "").slice(0, 1600);
+    // 检索优先，看板压缩，避免小上下文窗口被刷屏
+    const boardBrief = String(board || "").slice(0, 1800);
     let ask = q;
     if (isAffirmShort(q)) {
       ask =
