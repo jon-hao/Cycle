@@ -159,19 +159,75 @@ window.CycleLLM = (function () {
 
   function mdHint(lang) {
     return isZh(lang)
-      ? "用 Markdown 排版（标题、**加粗**、列表等），结构清晰可读；不要输出思考过程。"
-      : "Format with Markdown (headings, **bold**, lists). Keep it scannable. No chain-of-thought.";
+      ? "用 Markdown 排版（标题、**加粗**、列表等）；不要输出思考过程；禁止重复同一句话或同一段落。"
+      : "Format with Markdown (headings, **bold**, lists). No chain-of-thought. Never repeat the same sentence or paragraph.";
   }
 
   function colloquialSystem(lang, kind) {
+    const net = isZh(lang)
+      ? "必须优先结合「联网检索」中的最新信息做判断；看板数据只作背景。禁止复述输入原文/数字清单当分析。"
+      : "Prioritize live web-search notes; treat board numbers as background only. Do not recite the input.";
     if (kind === "news") {
       return isZh(lang)
-        ? `你是宏观市场分析员。根据新闻判断可能受影响的行业或板块（如银行、地产、科技、能源、消费、出口等），说明为什么。用 Markdown 分三段：### 市场含义 / ### 可能受益 / ### 可能承压。可加粗关键词、用列表。不要复述标题，不要喊买卖。${mdHint(lang)}`
-        : `You are a macro desk analyst. Infer which industries/sectors may be affected and why. Use Markdown with three sections: ### Implication / ### May benefit / ### May struggle. Bold key terms and use lists. Do not restate the headline. No trade calls. ${mdHint(lang)}`;
+        ? `你是宏观市场分析员。${net}根据新闻与检索判断可能受影响的行业或板块，说明为什么。用 Markdown 分三段：### 市场含义 / ### 可能受益 / ### 可能承压。写完即停。不要喊买卖。${mdHint(lang)}`
+        : `You are a macro desk analyst. ${net} Infer affected industries/sectors and why. Markdown sections: ### Implication / ### May benefit / ### May struggle. Stop when done. No trade calls. ${mdHint(lang)}`;
     }
     return isZh(lang)
-      ? `你是宏观市场分析员。若提供了「当前弹窗聚焦」指标，必须优先分析该指标的水平、趋势与含义，其它宏观数据仅作辅助背景。用 Markdown 分三段：### 市场状态判断 / ### 谁可能更舒服 / ### 谁可能更难受。可加粗关键词、用列表。不要把数字复述一遍当分析，不要喊买卖。${mdHint(lang)}`
-      : `You are a macro desk analyst. If a focused metric is provided for the open modal, prioritize that series (level, trend, implication); treat other macros as background only. Use Markdown with three sections: ### Regime / ### Who may benefit / ### Who may struggle. Bold key terms and use lists. Do not recite input numbers. No trade calls. ${mdHint(lang)}`;
+      ? `你是宏观市场分析员。${net}若有「当前弹窗聚焦」指标，优先解读其水平、趋势与含义。用 Markdown 分三段：### 市场状态判断 / ### 谁可能更舒服 / ### 谁可能更难受。写完即停。不要喊买卖。${mdHint(lang)}`
+      : `You are a macro desk analyst. ${net} If a focused metric is given, prioritize it. Markdown sections: ### Regime / ### Who may benefit / ### Who may struggle. Stop when done. No trade calls. ${mdHint(lang)}`;
+  }
+
+  /** 掐掉小模型复读循环（连续/交替重复句子） */
+  function trimRepetition(text) {
+    let s = String(text || "").trim();
+    if (!s) return s;
+    const parts = s.split(/(?<=[。！？.!?]\s*|\n+)/).map((x) => x.trim()).filter(Boolean);
+    if (parts.length < 3) return s;
+    const out = [];
+    const seen = new Map();
+    for (let i = 0; i < parts.length; i++) {
+      const p = parts[i];
+      const key = p.replace(/\s+/g, "").slice(0, 36);
+      const count = seen.get(key) || 0;
+      if (count >= 1) break;
+      // 与上一句高度重合也停
+      if (out.length) {
+        const prev = out[out.length - 1].replace(/\s+/g, "");
+        const cur = p.replace(/\s+/g, "");
+        if (prev.length > 8 && cur.length > 8) {
+          if (prev.includes(cur.slice(0, 16)) || cur.includes(prev.slice(0, 16))) break;
+        }
+      }
+      // 交替两句循环：A B A → 在第二次 A 处停
+      if (
+        out.length >= 2 &&
+        p.replace(/\s+/g, "") === out[out.length - 2].replace(/\s+/g, "")
+      ) {
+        break;
+      }
+      seen.set(key, count + 1);
+      out.push(p);
+    }
+    return (out.length ? out.join("") : s).trim();
+  }
+
+  async function fetchSearchNotes(query, lang) {
+    const q = String(query || "").trim();
+    if (!q || !window.CycleAPI || !window.CycleAPI.searchWeb) return "";
+    try {
+      const data = await window.CycleAPI.searchWeb(q);
+      const rows = (data && data.results) || [];
+      if (!rows.length) return "";
+      const lines = rows.slice(0, 5).map((r, i) => {
+        const snip = String(r.snippet || "").slice(0, 140);
+        return `${i + 1}. ${r.title || ""}${snip ? " — " + snip : ""}`;
+      });
+      return isZh(lang)
+        ? "联网检索（最新，请综合判断，勿逐条复述）：\n" + lines.join("\n")
+        : "Live web search (synthesize, do not recite):\n" + lines.join("\n");
+    } catch (_) {
+      return "";
+    }
   }
 
   function fallback(kind, payload, lang) {
@@ -216,7 +272,7 @@ window.CycleLLM = (function () {
       .trim();
   }
 
-  async function chat(system, userOrMessages, onProgress) {
+  async function chat(system, userOrMessages, onProgress, opts) {
     const eng = await ensureEngine(onProgress);
     if (!eng) return { ok: false, error: readState().text || "engine" };
     try {
@@ -228,17 +284,23 @@ window.CycleLLM = (function () {
           ];
       const reply = await eng.chat.completions.create({
         messages,
-        temperature: 0.45,
-        max_tokens: 700,
+        temperature: (opts && opts.temperature) != null ? opts.temperature : 0.35,
+        top_p: 0.85,
+        max_tokens: (opts && opts.max_tokens) != null ? opts.max_tokens : 380,
+        frequency_penalty:
+          (opts && opts.frequency_penalty) != null ? opts.frequency_penalty : 0.7,
+        presence_penalty:
+          (opts && opts.presence_penalty) != null ? opts.presence_penalty : 0.4,
         extra_body: { enable_thinking: false },
       });
-      const text = stripThinking(
+      let text = stripThinking(
         (reply.choices &&
           reply.choices[0] &&
           reply.choices[0].message &&
           reply.choices[0].message.content) ||
           ""
       );
+      text = trimRepetition(text);
       return { ok: !!text, text };
     } catch (e) {
       return { ok: false, error: String(e && e.message ? e.message : e) };
@@ -247,6 +309,7 @@ window.CycleLLM = (function () {
 
   async function interpret(kind, payload, lang, onProgress) {
     const system = colloquialSystem(lang, kind);
+    let searchQ = "";
     let user = "";
     if (kind === "macro") {
       const focus = payload.focus
@@ -254,24 +317,45 @@ window.CycleLLM = (function () {
           ? `当前弹窗聚焦：指标=${payload.focus.metric || ""}；标题=${payload.focus.title || ""}；现值=${payload.focus.value ?? "n/a"}；近期变化=${payload.focus.delta ?? "n/a"}。请优先解读该指标。`
           : `Open modal focus: metric=${payload.focus.metric || ""}; title=${payload.focus.title || ""}; value=${payload.focus.value ?? "n/a"}; recent change=${payload.focus.delta ?? "n/a"}. Prioritize this metric.`
         : "";
+      searchQ = [
+        payload.focus && payload.focus.title,
+        payload.focus && payload.focus.metric,
+        payload.countryLabel,
+        isZh(lang) ? "最新 宏观 市场影响" : "latest macro market impact",
+      ]
+        .filter(Boolean)
+        .join(" ");
       user = isZh(lang)
-        ? `${focus}\n背景数据（勿复述，只用来辅助判断）：国家=${payload.countryLabel}；康波=K${payload.waveId} ${payload.phase}；利率=${payload.rate}；通胀=${payload.inflation}；CPI=${payload.cpi}；PPI=${payload.ppi}；恐慌贪婪=${payload.fearGreed}。请判断市场状态。`
-        : `${focus}\nBackground (do not recite): country=${payload.countryLabel}; wave=K${payload.waveId} ${payload.phase}; rate=${payload.rate}; inflation=${payload.inflation}; CPI=${payload.cpi}; PPI=${payload.ppi}; Fear&Greed=${payload.fearGreed}. Infer the market regime.`;
+        ? `${focus}\n背景数据（勿复述）：国家=${payload.countryLabel}；康波=K${payload.waveId} ${payload.phase}；利率=${payload.rate}；通胀=${payload.inflation}；CPI=${payload.cpi}；PPI=${payload.ppi}；恐慌贪婪=${payload.fearGreed}。\n请结合联网检索给出市场状态判断（不要复读）。`
+        : `${focus}\nBackground (do not recite): country=${payload.countryLabel}; wave=K${payload.waveId} ${payload.phase}; rate=${payload.rate}; inflation=${payload.inflation}; CPI=${payload.cpi}; PPI=${payload.ppi}; Fear&Greed=${payload.fearGreed}.\nUse live search to judge the regime. No repetition.`;
     } else if (kind === "news") {
+      searchQ = `${payload.title || ""} ${isZh(lang) ? "最新影响 板块" : "market impact sectors"}`;
       user = isZh(lang)
-        ? `新闻：${payload.title}\n摘要：${payload.summary}\n请分析可能影响哪些行业/板块。`
-        : `Headline: ${payload.title}\nSummary: ${payload.summary}\nWhich industries/sectors may be affected?`;
+        ? `新闻：${payload.title}\n摘要：${payload.summary}\n请结合联网检索分析可能影响哪些行业/板块（不要复述标题）。`
+        : `Headline: ${payload.title}\nSummary: ${payload.summary}\nUsing live search, which industries/sectors may be affected? Do not restate the headline.`;
     } else if (kind === "wave") {
+      searchQ = isZh(lang)
+        ? `康波 ${payload.phase || ""} ${payload.theme || ""} 宏观配置 最新`
+        : `Kondratiev ${payload.phase || ""} ${payload.theme || ""} allocation latest`;
       user = isZh(lang)
-        ? `背景（勿逐条复述）：模式=${payload.kMode || "realtime"}；阶段=${payload.phase}；倾向→${payload.heading}；主题=${payload.theme}；${payload.phaseDesc || ""}；growth=${payload.growthScore}；inflation=${payload.inflationScore}；组合提示=${payload.portfolio}。请用通俗话说明：现在处在什么周期、正在往哪走、对组合意味着什么。`
-        : `Background (do not recite): mode=${payload.kMode || "realtime"}; phase=${payload.phase}; heading→${payload.heading}; theme=${payload.theme}; ${payload.phaseDesc || ""}; growth=${payload.growthScore}; inflation=${payload.inflationScore}; portfolio tilt=${payload.portfolio}. Explain in plain language: where we are, where we're heading, and what it means for allocation.`;
+        ? `背景（勿逐条复述）：模式=${payload.kMode || "realtime"}；阶段=${payload.phase}；倾向→${payload.heading}；主题=${payload.theme}；growth=${payload.growthScore}；inflation=${payload.inflationScore}；组合提示=${payload.portfolio}。\n请结合联网检索用通俗话说明：现在处在什么周期、往哪走、对组合意味着什么。`
+        : `Background (do not recite): mode=${payload.kMode || "realtime"}; phase=${payload.phase}; heading→${payload.heading}; theme=${payload.theme}; growth=${payload.growthScore}; inflation=${payload.inflationScore}; portfolio=${payload.portfolio}.\nWith live search, explain where we are, where we're heading, allocation implications.`;
     } else {
+      searchQ = `${payload.title || ""} ${isZh(lang) ? "最新 数据公布 市场反应" : "latest data release market reaction"}`;
       user = isZh(lang)
-        ? `数据事件：${payload.title}；期望=${payload.forecast}；公布=${payload.actual}；前值=${payload.previous}。判断对市场状态的含义。`
-        : `Release: ${payload.title}; forecast=${payload.forecast}; actual=${payload.actual}; previous=${payload.previous}. What does it imply for market regime?`;
+        ? `数据事件：${payload.title}；期望=${payload.forecast}；公布=${payload.actual}；前值=${payload.previous}。\n请结合联网检索判断对市场状态的含义。`
+        : `Release: ${payload.title}; forecast=${payload.forecast}; actual=${payload.actual}; previous=${payload.previous}.\nUse live search: what does it imply for market regime?`;
     }
 
-    const live = await chat(system, user, onProgress);
+    const notes = await fetchSearchNotes(searchQ, lang);
+    if (notes) user = notes + "\n\n" + user;
+
+    const live = await chat(system, user, onProgress, {
+      temperature: 0.3,
+      max_tokens: 420,
+      frequency_penalty: 0.75,
+      presence_penalty: 0.45,
+    });
     if (live.ok && live.text.trim())
       return { ok: true, text: live.text.trim(), source: "webllm" };
     return {

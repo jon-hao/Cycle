@@ -59,50 +59,36 @@ window.CycleAgent = (function () {
     if (lang === "en") {
       return [
         "You are Cycle Agent, a macro desk assistant.",
-        "Use the board context and any live web search snippets. Answer directly with concrete points.",
-        "Format replies in Markdown: headings, **bold**, bullet lists when helpful.",
-        "Never ask 'need more info?' or similar confirmation questions.",
-        "If the user says yes / need / continue / ok, expand the previous topic with new details — do not repeat your last line.",
-        "No trade calls. Keep answers under ~180 words unless asked for depth.",
+        "Prioritize live web-search notes; use board cache only as background.",
+        "Answer with 3-5 concrete Markdown bullets. Never repeat a sentence. Never ask confirmation questions.",
+        "No trade calls. Keep under ~150 words.",
       ].join(" ");
     }
     if (lang === "zh-TW") {
       return [
         "你是 Cycle Agent，宏觀助手。",
-        "結合看板上下文與實時聯網檢索摘要直接回答，給出具體要點。",
-        "請用 Markdown 排版：標題、**加粗**、必要時用列表。",
-        "禁止問「需要更多資訊嗎」或類似確認句。",
-        "若用戶說「需要/好/繼續/是/ok」，在上一話題上補充新細節，禁止重複上一句。",
-        "不要喊買賣。除非用戶要求展開，否則控制在約 180 字內。",
+        "優先使用「聯網檢索」最新信息，看板只作背景。",
+        "用 Markdown 給出 3–5 條具體要點。禁止重複同一句。禁止反問。不要喊買賣。約 150 字內寫完即停。",
       ].join("");
     }
     return [
       "你是 Cycle Agent，宏观助手。",
-      "结合看板上下文与实时联网检索摘要直接回答，给出具体要点。",
-      "请用 Markdown 排版：标题、**加粗**、必要时用列表。",
-      "禁止问「需要更多信息吗」或类似确认句。",
-      "若用户说「需要/好/继续/是/ok」，在上一话题上补充新细节，禁止重复上一句。",
-      "不要喊买卖。除非用户要求展开，否则控制在约 180 字内。",
+      "优先使用「联网检索」最新信息，看板只作背景。",
+      "用 Markdown 给出 3–5 条具体要点。禁止重复同一句。禁止反问。不要喊买卖。约 150 字内写完即停。",
     ].join("");
   }
 
   function needsWebSearch(q) {
     const t = String(q || "").trim();
     if (!t || isAffirmShort(t)) return false;
-    return /最新|今天|今日|刚才|剛剛|现在|現在|为何|為什麼|为什么|金价|金價|油价|油價|非农|非農|加息|降息|美联储|美聯儲|行情|涨跌|漲跌|news|today|latest|why|fed|cpi|nfp|yield|market/i.test(
-      t
-    );
+    // 1.5B 依赖检索；实质问题一律联网
+    return t.length >= 2;
   }
 
   async function searchContext(q, lang) {
     if (!window.CycleAPI || !window.CycleAPI.searchWeb) return "";
     if (isAffirmShort(q)) return "";
-    // 总体分析：有实质问题就尝试联网；短问句也按关键词补检索
-    const query = needsWebSearch(q)
-      ? q
-      : String(q || "").trim().length >= 6
-        ? q
-        : "";
+    const query = needsWebSearch(q) ? String(q || "").trim() : "";
     if (!query) return "";
     try {
       const data = await window.CycleAPI.searchWeb(query);
@@ -115,9 +101,9 @@ window.CycleAgent = (function () {
         }`;
       });
       if (lang === "en") {
-        return "Live web search:\n" + lines.join("\n");
+        return "Live web search (synthesize; do not recite):\n" + lines.join("\n");
       }
-      return "联网检索结果：\n" + lines.join("\n");
+      return "联网检索（请综合最新信息作答，勿逐条复述）：\n" + lines.join("\n");
     } catch (_) {
       return "";
     }
@@ -136,51 +122,60 @@ window.CycleAgent = (function () {
     const t = String(text || "").trim();
     if (!t) return true;
     if (t.length < 12) return true;
-    return /需要更多(信息|資訊)吗？?$|need more (info|information)\??$/i.test(t);
+    if (/需要更多(信息|資訊)吗？?$|need more (info|information)\??$/i.test(t)) {
+      return true;
+    }
+    // 复读循环判定：同一短句出现 ≥3 次
+    const parts = t.split(/(?<=[。！？.!?])/).map((x) => x.trim()).filter(Boolean);
+    if (parts.length >= 4) {
+      const counts = {};
+      for (const p of parts) {
+        const k = p.slice(0, 24);
+        counts[k] = (counts[k] || 0) + 1;
+        if (counts[k] >= 3) return true;
+      }
+    }
+    return false;
   }
 
   function buildMessages(msgs, q, lang, webCtx) {
     const history = msgs
       .filter((m) => m.role === "user" || m.role === "assistant")
       .slice(0, -1)
-      .slice(-12)
+      .slice(-6)
       .map((m) => ({
         role: m.role === "assistant" ? "assistant" : "user",
-        content: String(m.content || "").slice(0, 1200),
+        content: String(m.content || "").slice(0, 400),
       }));
 
     const board =
       window.CycleBoard && window.CycleBoard.agentContext
         ? window.CycleBoard.agentContext(lang)
         : contextSnippet();
-    const ctxBits = [
-      lang === "en"
-        ? "Full Cycle board cache (US+CN macro/news/calendar). Use it for overall analysis:"
-        : "Cycle 全量看板缓存（美/中宏观、新闻、日历）。请据此做总体分析：",
-      board.slice(0, 9000),
-    ];
-    if (webCtx) ctxBits.push(webCtx);
-    const ctx = ctxBits.join("\n\n");
-    let userContent = q;
+    // 1.5B 吃不下超长看板；检索优先，看板压缩
+    const boardBrief = String(board || "").slice(0, 1600);
+    let ask = q;
     if (isAffirmShort(q)) {
-      userContent =
+      ask =
         lang === "en"
-          ? `User confirmed they want more. Expand the previous answer with new concrete points. Do not repeat the last sentence. Do not ask a follow-up question.\n\nUser said: ${q}`
-          : `用户确认想听更多。请在上一回答基础上补充新的具体要点，不要重复上一句，不要反问。\n\n用户说：${q}`;
+          ? `User wants more. Expand with new concrete points. Do not repeat. Do not ask questions.\nUser said: ${q}`
+          : `用户想听更多。请补充新的具体要点，不要重复，不要反问。\n用户说：${q}`;
     }
+    const userContent =
+      (webCtx ? webCtx + "\n\n" : "") +
+      (lang === "en"
+        ? "Board background (optional):\n"
+        : "看板背景（可选参考，勿复述）：\n") +
+      boardBrief +
+      "\n\n" +
+      (lang === "en" ? "User question:\n" : "用户问题：\n") +
+      ask +
+      "\n\n" +
+      (lang === "en"
+        ? "Answer now in Markdown. 3-5 bullets. Stop when done. No repeated sentences."
+        : "请立刻用 Markdown 作答：3–5 条要点，写完即停，禁止重复句子。");
 
-    return [
-      { role: "user", content: ctx },
-      {
-        role: "assistant",
-        content:
-          lang === "en"
-            ? "Understood. I will answer using the full board cache and any search notes."
-            : "收到，我会结合全量看板缓存与检索摘要直接作答。",
-      },
-      ...history,
-      { role: "user", content: userContent },
-    ];
+    return [...history, { role: "user", content: userContent }];
   }
 
   function open() {
@@ -262,29 +257,48 @@ window.CycleAgent = (function () {
             const webCtx = await searchContext(q, lang);
             const live = await window.CycleLLM.chat(
               systemPrompt(lang),
-              buildMessages(msgs, q, lang, webCtx)
+              buildMessages(msgs, q, lang, webCtx),
+              null,
+              {
+                temperature: 0.35,
+                max_tokens: 320,
+                frequency_penalty: 0.8,
+                presence_penalty: 0.5,
+              }
             );
             reply = (live && live.ok && live.text && live.text.trim()) || "";
             if (isLazyReply(reply)) {
               const retry = await window.CycleLLM.chat(
                 systemPrompt(lang),
-                buildMessages(msgs, q, lang, webCtx).concat([
+                [
                   {
                     role: "user",
                     content:
-                      lang === "en"
-                        ? "Your last reply was too thin or only asked a question. Give a substantive answer now with 3 concrete points. No questions."
-                        : "上一句太空或只在反问。请立刻给出有实质内容的回答，至少 3 个具体要点，不要提问。",
+                      (webCtx ? webCtx + "\n\n" : "") +
+                      (lang === "en"
+                        ? `Question: ${q}\nGive 3 concrete Markdown bullets using the search notes. No repetition. No questions.`
+                        : `问题：${q}\n请根据联网检索给出 3 条 Markdown 要点。禁止复读，禁止提问。`),
                   },
-                ])
+                ],
+                null,
+                {
+                  temperature: 0.25,
+                  max_tokens: 260,
+                  frequency_penalty: 0.9,
+                  presence_penalty: 0.6,
+                }
               );
               if (retry && retry.ok && retry.text && !isLazyReply(retry.text)) {
                 reply = retry.text.trim();
               } else if (!reply || isLazyReply(reply)) {
                 reply =
                   lang === "en"
-                    ? "I couldn't expand that turn. Try asking a more specific follow-up (e.g. rates, inflation, or a sector)."
-                    : "这一轮没展开好。请换个更具体的追问（例如利率、通胀或某个板块）。";
+                    ? webCtx
+                      ? "Search came back, but the local model looped. Try a narrower question (e.g. US gold ETF flows today)."
+                      : "I couldn't form a clean answer (search empty or model looped). Try a more specific question."
+                    : webCtx
+                      ? "已检索到最新信息，但本地模型陷入复读。请换个更具体的问题（例如：今天美盘黄金为何波动）。"
+                      : "这一轮没答好（检索为空或模型复读）。请换个更具体的问题。";
               }
             }
           } else {
