@@ -791,12 +791,44 @@ window.CycleAPI = (function () {
     return filterNewsByCountry(tagged, country).slice(0, 60);
   }
 
+  /** HApi assets 是否已部署；探测一次后缓存，避免关系页刷一堆 400 */
+  let assetsHapiOk = null;
+  let assetsHapiProbe = null;
+
+  function probeAssetsHapi() {
+    if (assetsHapiOk != null) return Promise.resolve(assetsHapiOk);
+    if (assetsHapiProbe) return assetsHapiProbe;
+    assetsHapiProbe = hapi("assets", { action: "search", q: "AAPL" }, { timeout: 6000 })
+      .then((d) => {
+        assetsHapiOk = !!(d && Array.isArray(d.results));
+        return assetsHapiOk;
+      })
+      .catch(() => {
+        assetsHapiOk = false;
+        return false;
+      });
+    return assetsHapiProbe;
+  }
+
   async function yahooCorsJson(url) {
-    const proxied =
-      "https://corsproxy.io/?" + encodeURIComponent(url);
-    const res = await fetch(proxied, { credentials: "omit" });
-    if (!res.ok) throw new Error("yahoo proxy " + res.status);
-    return res.json();
+    const attempts = [
+      "https://proxy.cors.dev/" + url,
+      "https://corsproxy.io/?" + encodeURIComponent(url),
+    ];
+    let lastErr = null;
+    for (const proxied of attempts) {
+      try {
+        const res = await fetch(proxied, { credentials: "omit" });
+        if (!res.ok) {
+          lastErr = new Error("yahoo proxy " + res.status);
+          continue;
+        }
+        return await res.json();
+      } catch (e) {
+        lastErr = e;
+      }
+    }
+    throw lastErr || new Error("yahoo proxy failed");
   }
 
   function mapYahooQuote(q) {
@@ -855,10 +887,12 @@ window.CycleAPI = (function () {
   async function searchAssets(query) {
     const q = String(query || "").trim();
     if (!q) return [];
-    try {
-      const d = await hapi("assets", { action: "search", q }, { timeout: 20000 });
-      if (d && Array.isArray(d.results)) return d.results;
-    } catch (_) {}
+    if (await probeAssetsHapi()) {
+      try {
+        const d = await hapi("assets", { action: "search", q }, { timeout: 20000 });
+        if (d && Array.isArray(d.results)) return d.results;
+      } catch (_) {}
+    }
     const url =
       "https://query1.finance.yahoo.com/v1/finance/search?q=" +
       encodeURIComponent(q) +
@@ -870,14 +904,16 @@ window.CycleAPI = (function () {
   async function fetchAssetHistory(symbol, range) {
     const sym = String(symbol || "").trim();
     if (!sym) return null;
-    try {
-      const d = await hapi(
-        "assets",
-        { action: "history", symbol: sym, range: range || "1y" },
-        { timeout: 55000 }
-      );
-      if (d && Array.isArray(d.series)) return d;
-    } catch (_) {}
+    if (await probeAssetsHapi()) {
+      try {
+        const d = await hapi(
+          "assets",
+          { action: "history", symbol: sym, range: range || "1y" },
+          { timeout: 55000 }
+        );
+        if (d && Array.isArray(d.series)) return d;
+      } catch (_) {}
+    }
     const yr = yahooRangeParams(range);
     let url =
       "https://query1.finance.yahoo.com/v8/finance/chart/" +
