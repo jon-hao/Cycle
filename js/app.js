@@ -269,11 +269,11 @@ window.CycleSelect = (function () {
     const on = !!window.CycleState.autoRefresh;
     els.refreshFab.dataset.on = on ? "1" : "0";
     els.refreshFab.setAttribute("aria-pressed", on ? "true" : "false");
-    els.refreshFab.title = on
+    const title = on
       ? window.t("autoRefreshOn") + " · " + window.t("autoRefreshHint")
       : window.t("autoRefreshOff") + " · " + window.t("autoRefreshHint");
-    const lab = els.refreshFab.querySelector(".refresh-fab-label");
-    if (lab) lab.textContent = on ? "ON" : "OFF";
+    els.refreshFab.title = title;
+    els.refreshFab.setAttribute("aria-label", title);
   }
 
   function setAutoRefresh(on) {
