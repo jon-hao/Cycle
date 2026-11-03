@@ -6,6 +6,73 @@
 
 const UA = "Mozilla/5.0 (compatible; HApi/1.0; +https://cycle.app)";
 
+/** Yahoo 搜索不接受中文关键词；映射到英文 / 常见代码 */
+const CN_ALIASES = [
+  ["白银", "silver"],
+  ["黄金", "gold"],
+  ["比特币", "bitcoin"],
+  ["以太", "ethereum"],
+  ["原油", "crude oil"],
+  ["布伦特", "brent"],
+  ["纳斯达克", "nasdaq"],
+  ["纳指", "nasdaq"],
+  ["标普", "s&p 500"],
+  ["标普500", "s&p 500"],
+  ["道琼斯", "dow jones"],
+  ["道指", "dow jones"],
+  ["恒生", "hang seng"],
+  ["恒指", "hang seng"],
+  ["上证", "shanghai composite"],
+  ["沪深", "china a-share"],
+  ["美债", "treasury yield"],
+  ["国债", "treasury"],
+  ["美元", "dollar index"],
+  ["欧元", "euro"],
+  ["日元", "yen"],
+  ["铜", "copper"],
+  ["天然气", "natural gas"],
+  ["美联储", "fed funds"],
+  ["利率", "interest rate"],
+  ["期货", "futures"],
+  ["指数", "index"],
+];
+
+function expandSearchQueries(raw) {
+  const q = String(raw || "").trim();
+  if (!q) return [];
+  const out = [];
+  const push = (s) => {
+    const t = String(s || "").trim();
+    if (t && !out.includes(t)) out.push(t);
+  };
+  push(q);
+  if (/[\u4e00-\u9fff]/.test(q)) {
+    CN_ALIASES.forEach(([zh, en]) => {
+      if (q.includes(zh)) push(en);
+    });
+    // 整词命中失败时，用包含关系的别名兜底
+    if (out.length === 1) {
+      CN_ALIASES.forEach(([zh, en]) => {
+        if (zh.includes(q) || q.includes(zh.slice(0, 2))) push(en);
+      });
+    }
+  }
+  return out.slice(0, 4);
+}
+
+async function yahooSearch(q) {
+  const url =
+    "https://query1.finance.yahoo.com/v1/finance/search?q=" +
+    encodeURIComponent(q) +
+    "&quotesCount=16&newsCount=0&listsCount=0&enableFuzzyQuery=false";
+  try {
+    const data = await yahooGet(url);
+    return (data.quotes || []).map(mapQuote).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
 function rangeToYahoo(range) {
   const r = String(range || "1y").toLowerCase();
   if (r === "10y" || r === "10") return { range: "10y", interval: "1wk" };
@@ -59,16 +126,26 @@ export async function handleAssets(payload) {
   if (action === "search") {
     const q = String(payload.q || "").trim();
     if (!q) return { flow: "assets", action: "search", results: [] };
-    const url =
-      "https://query1.finance.yahoo.com/v1/finance/search?q=" +
-      encodeURIComponent(q) +
-      "&quotesCount=16&newsCount=0&listsCount=0";
-    const data = await yahooGet(url);
-    const results = (data.quotes || [])
-      .map(mapQuote)
-      .filter(Boolean)
-      .slice(0, 16);
-    return { flow: "assets", action: "search", q, results };
+    const queries = expandSearchQueries(q);
+    const seen = new Set();
+    const results = [];
+    for (const term of queries) {
+      const batch = await yahooSearch(term);
+      for (const item of batch) {
+        if (!item || seen.has(item.symbol)) continue;
+        seen.add(item.symbol);
+        results.push(item);
+        if (results.length >= 16) break;
+      }
+      if (results.length >= 16) break;
+    }
+    return {
+      flow: "assets",
+      action: "search",
+      q,
+      queries,
+      results,
+    };
   }
 
   if (action === "history") {

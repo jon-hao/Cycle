@@ -884,6 +884,42 @@ window.CycleAPI = (function () {
     return { range: "1y", interval: "1d" };
   }
 
+  const CN_ASSET_ALIASES = [
+    ["白银", "silver"],
+    ["黄金", "gold"],
+    ["比特币", "bitcoin"],
+    ["以太", "ethereum"],
+    ["原油", "crude oil"],
+    ["纳斯达克", "nasdaq"],
+    ["纳指", "nasdaq"],
+    ["标普", "s&p 500"],
+    ["道琼斯", "dow jones"],
+    ["道指", "dow jones"],
+    ["恒生", "hang seng"],
+    ["恒指", "hang seng"],
+    ["上证", "shanghai"],
+    ["美债", "treasury"],
+    ["美元", "dollar"],
+    ["铜", "copper"],
+  ];
+
+  function expandAssetQueries(raw) {
+    const q = String(raw || "").trim();
+    if (!q) return [];
+    const out = [];
+    const push = (s) => {
+      const t = String(s || "").trim();
+      if (t && !out.includes(t)) out.push(t);
+    };
+    push(q);
+    if (/[\u4e00-\u9fff]/.test(q)) {
+      CN_ASSET_ALIASES.forEach(([zh, en]) => {
+        if (q.includes(zh)) push(en);
+      });
+    }
+    return out.slice(0, 4);
+  }
+
   async function searchAssets(query) {
     const q = String(query || "").trim();
     if (!q) return [];
@@ -893,12 +929,45 @@ window.CycleAPI = (function () {
         if (d && Array.isArray(d.results)) return d.results;
       } catch (_) {}
     }
-    const url =
-      "https://query1.finance.yahoo.com/v1/finance/search?q=" +
-      encodeURIComponent(q) +
-      "&quotesCount=16&newsCount=0&listsCount=0";
-    const data = await yahooCorsJson(url);
-    return (data.quotes || []).map(mapYahooQuote).filter(Boolean).slice(0, 16);
+    const seen = new Set();
+    const results = [];
+    for (const term of expandAssetQueries(q)) {
+      if (/[\u4e00-\u9fff]/.test(term) && term === q && expandAssetQueries(q).length > 1) {
+        continue; // Yahoo 拒中文，跳过原文
+      }
+      try {
+        const url =
+          "https://query1.finance.yahoo.com/v1/finance/search?q=" +
+          encodeURIComponent(term) +
+          "&quotesCount=16&newsCount=0&listsCount=0";
+        const data = await yahooCorsJson(url);
+        (data.quotes || []).map(mapYahooQuote).filter(Boolean).forEach((item) => {
+          if (!item || seen.has(item.symbol)) return;
+          seen.add(item.symbol);
+          results.push(item);
+        });
+      } catch (_) {}
+      if (results.length >= 16) break;
+    }
+    return results.slice(0, 16);
+  }
+
+  async function getRelationPins() {
+    const d = await hapi(
+      "cprefs",
+      { action: "get", key: "relations" },
+      { timeout: 20000 }
+    );
+    return d && Array.isArray(d.pins) ? d.pins : [];
+  }
+
+  async function setRelationPins(pins) {
+    const d = await hapi(
+      "cprefs",
+      { action: "set", key: "relations", pins: pins || [] },
+      { timeout: 20000 }
+    );
+    return d && Array.isArray(d.pins) ? d.pins : pins || [];
   }
 
   async function fetchAssetHistory(symbol, range) {
@@ -1033,6 +1102,8 @@ window.CycleAPI = (function () {
     searchWeb,
     searchAssets,
     fetchAssetHistory,
+    getRelationPins,
+    setRelationPins,
     fetchCalendar,
     witchingDates,
     getToken,

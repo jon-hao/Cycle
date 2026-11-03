@@ -80,6 +80,17 @@ export async function handleCatalog() {
         returns: "Yahoo Finance symbol search + OHLCV history (server proxy)",
       },
       {
+        id: "cprefs",
+        method: ["GET", "POST"],
+        params: {
+          action: "get|set",
+          key: "relations?",
+          pins: "array?",
+          app: "cycle",
+        },
+        returns: "Cycle per-account prefs (relations pin list)",
+      },
+      {
         id: "hauth",
         method: ["GET", "POST"],
         params: {

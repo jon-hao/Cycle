@@ -13,6 +13,7 @@
 import { handleNews } from "./flows/news.mjs";
 import { handleSearch } from "./flows/search.mjs";
 import { handleAssets } from "./flows/assets.mjs";
+import { handleCyclePrefs } from "./flows/cyclePrefs.mjs";
 import { handleMacro } from "./flows/macro.mjs";
 import { handleFearGreed } from "./flows/feargreed.mjs";
 import { handleCalendar } from "./flows/calendar.mjs";
@@ -32,6 +33,7 @@ const FLOWS = {
   new: handleNews,
   search: handleSearch,
   assets: handleAssets,
+  cprefs: handleCyclePrefs,
   macro: handleMacro,
   feargreed: handleFearGreed,
   calendar: handleCalendar,
@@ -136,6 +138,7 @@ function inferApp(flow, payload) {
     flow === "new" ||
     flow === "search" ||
     flow === "assets" ||
+    flow === "cprefs" ||
     flow === "macro" ||
     flow === "feargreed" ||
     flow === "calendar" ||

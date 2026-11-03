@@ -546,18 +546,10 @@ window.CycleSelect = (function () {
       window.CycleLLM.resumeIfNeeded();
     }
 
-    const h = (location.hash || "#data").replace("#", "");
-    window.CycleState.page = VALID_PAGES.includes(h)
-      ? h
-      : h === "news" || h === "calendar"
-        ? "insight"
-        : "data";
-    if (!location.hash || location.hash === "#" || !VALID_PAGES.includes(h)) {
-      if (h !== "news" && h !== "calendar") {
-        location.hash = "data";
-      } else {
-        location.hash = "insight";
-      }
+    // 进入应用默认落在数据页；之后可由 footer / hash 切换
+    window.CycleState.page = "data";
+    if (location.hash.replace(/^#/, "") !== "data") {
+      location.hash = "data";
     }
 
     await renderPage(false);

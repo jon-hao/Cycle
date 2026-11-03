@@ -61,25 +61,36 @@ window.CyclePages.relations = (function () {
     return base;
   }
 
-  function loadPins() {
+  async function loadPins() {
+    try {
+      const remote = await window.CycleAPI.getRelationPins();
+      if (Array.isArray(remote) && remote.length) {
+        return remote.map(normalizePin);
+      }
+    } catch (_) {}
+    // 首次：迁移本机缓存，否则写入默认列表到账号
+    let local = null;
     try {
       const raw = localStorage.getItem(PIN_KEY);
       if (raw) {
         const arr = JSON.parse(raw);
-        if (Array.isArray(arr) && arr.length) {
-          const next = arr.map(normalizePin);
-          savePins(next);
-          return next;
-        }
+        if (Array.isArray(arr) && arr.length) local = arr.map(normalizePin);
       }
     } catch (_) {}
-    return DEFAULTS.map((a) => Object.assign({}, a));
+    const seed = local || DEFAULTS.map((a) => Object.assign({}, a));
+    try {
+      await window.CycleAPI.setRelationPins(seed);
+      localStorage.removeItem(PIN_KEY);
+    } catch (_) {}
+    return seed;
   }
 
+  let saveTimer = null;
   function savePins(list) {
-    try {
-      localStorage.setItem(PIN_KEY, JSON.stringify(list));
-    } catch (_) {}
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      window.CycleAPI.setRelationPins(list).catch(() => {});
+    }, 280);
   }
 
   function returns(series) {
@@ -361,7 +372,8 @@ window.CyclePages.relations = (function () {
 
   function pinAsset(list, item) {
     if (list.some((a) => a.symbol === item.symbol)) return list;
-    const next = list.concat([
+    // 新固定放最上面
+    const next = [
       {
         id: item.symbol,
         symbol: item.symbol,
@@ -370,16 +382,74 @@ window.CyclePages.relations = (function () {
         name: item.name,
         period: "1y",
       },
-    ]);
+    ].concat(list);
     savePins(next);
     return next;
   }
 
+  function wireCardDrag(grid, getPins, setPins) {
+    let dragEl = null;
+    let startY = 0;
+    let originIndex = -1;
+
+    grid.querySelectorAll("[data-drag]").forEach((handle) => {
+      handle.addEventListener("pointerdown", (e) => {
+        const card = handle.closest(".rel-card");
+        if (!card) return;
+        e.preventDefault();
+        e.stopPropagation();
+        dragEl = card;
+        originIndex = [...grid.children].indexOf(card);
+        startY = e.clientY;
+        card.classList.add("is-dragging");
+        handle.setPointerCapture(e.pointerId);
+      });
+      handle.addEventListener("pointermove", (e) => {
+        if (!dragEl) return;
+        const cards = [...grid.querySelectorAll(".rel-card:not(.is-dragging)")];
+        const y = e.clientY;
+        let target = null;
+        for (const c of cards) {
+          const r = c.getBoundingClientRect();
+          if (y < r.top + r.height / 2) {
+            target = c;
+            break;
+          }
+        }
+        if (target) grid.insertBefore(dragEl, target);
+        else grid.appendChild(dragEl);
+      });
+      function endDrag(e) {
+        if (!dragEl) return;
+        dragEl.classList.remove("is-dragging");
+        const nextOrder = [...grid.querySelectorAll(".rel-card")].map((c) =>
+          decodeURIComponent(c.dataset.symbol)
+        );
+        const pins = getPins();
+        const map = Object.fromEntries(pins.map((p) => [p.symbol, p]));
+        const reordered = nextOrder.map((s) => map[s]).filter(Boolean);
+        if (reordered.length === pins.length) {
+          setPins(reordered);
+          savePins(reordered);
+        }
+        dragEl = null;
+        originIndex = -1;
+        void startY;
+        void originIndex;
+        if (e && handle.hasPointerCapture && handle.hasPointerCapture(e.pointerId)) {
+          handle.releasePointerCapture(e.pointerId);
+        }
+      }
+      handle.addEventListener("pointerup", endDrag);
+      handle.addEventListener("pointercancel", endDrag);
+    });
+  }
+
   async function render(root, opts) {
     const seq = ++renderSeq;
-    let pins = loadPins();
     const soft = opts && opts.soft;
     void soft;
+    let pins = [];
 
     root.innerHTML = `
       <section class="panel rel-panel">
@@ -401,13 +471,37 @@ window.CyclePages.relations = (function () {
     const resultsEl = root.querySelector("#relResults");
     const searchInput = root.querySelector("#relSearch");
 
+    try {
+      pins = await loadPins();
+    } catch (_) {
+      pins = DEFAULTS.map((a) => Object.assign({}, a));
+    }
+    if (seq !== renderSeq) return;
+
     async function paintCards() {
       grid.innerHTML = pins
         .map(
           (a) => `<article class="rel-card" data-symbol="${encodeURIComponent(a.symbol)}">
+            <div class="rel-card-tools">
+              <button type="button" class="icon-btn icon-only rel-remove" data-remove title="${escapeHtml(
+                window.t("relationsRemove")
+              )}" aria-label="${escapeHtml(window.t("relationsRemove"))}">×</button>
+              <button type="button" class="icon-btn icon-only rel-drag" data-drag title="${escapeHtml(
+                window.t("relationsDrag")
+              )}" aria-label="${escapeHtml(window.t("relationsDrag"))}">
+                <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+                  <circle cx="9" cy="7" r="1.4" fill="currentColor"/>
+                  <circle cx="15" cy="7" r="1.4" fill="currentColor"/>
+                  <circle cx="9" cy="12" r="1.4" fill="currentColor"/>
+                  <circle cx="15" cy="12" r="1.4" fill="currentColor"/>
+                  <circle cx="9" cy="17" r="1.4" fill="currentColor"/>
+                  <circle cx="15" cy="17" r="1.4" fill="currentColor"/>
+                </svg>
+              </button>
+            </div>
             <div class="rel-card-head">
               <h3 class="card-title">${escapeHtml(assetName(a))}</h3>
-              <span class="card-date">${escapeHtml(a.symbol)}</span>
+              <div class="rel-symbol">${escapeHtml(a.symbol)}</div>
             </div>
             <canvas class="rel-mini-chart" height="72"></canvas>
             <div class="rel-card-factors muted tiny">${window.t("relationsLoading")}</div>
@@ -435,7 +529,20 @@ window.CyclePages.relations = (function () {
         paintMiniChart(canvas, analysis.series);
         const box = card.querySelector(".rel-card-factors");
         if (box) box.innerHTML = factorChips(analysis.factors);
-        card.addEventListener("click", () => {
+
+        const removeBtn = card.querySelector("[data-remove]");
+        if (removeBtn) {
+          removeBtn.addEventListener("click", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            pins = pins.filter((p) => p.symbol !== symbol);
+            savePins(pins);
+            paintCards();
+          });
+        }
+
+        card.addEventListener("click", (e) => {
+          if (e.target.closest("[data-drag], [data-remove]")) return;
           openDetail(analysis, (asset, nextAnalysis) => {
             const idx = pins.findIndex((p) => p.symbol === asset.symbol);
             if (idx >= 0) {
@@ -452,6 +559,14 @@ window.CyclePages.relations = (function () {
           });
         });
       });
+
+      wireCardDrag(
+        grid,
+        () => pins,
+        (next) => {
+          pins = next;
+        }
+      );
     }
 
     searchInput.addEventListener("input", () => {
